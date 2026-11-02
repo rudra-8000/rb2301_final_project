@@ -42,7 +42,7 @@ class Config:
             self.predict_time = 2.5  # [s]
 
             self.to_goal_cost_gain = 0.10
-            self.to_goal_heading_cost_gain = 0.02
+            self.to_goal_heading_cost_gain = 0.1
             self.to_goal_dist_cost_gain = 5
 
             self.speed_cost_gain = 1.7
@@ -186,6 +186,7 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
             trajectory = predict_trajectory(x_init, v, y, config)
             # calc cost
             to_goal_cost = 0
+            to_goal_dist_cost = 0
             if goal_heading is not None:
                 to_goal_cost = config.to_goal_heading_cost_gain * calc_to_goal_heading_cost(trajectory,goal_heading)
                 to_goal_dist_cost = config.to_goal_dist_cost_gain * calc_to_goal_dist_cost(trajectory,goal_heading)

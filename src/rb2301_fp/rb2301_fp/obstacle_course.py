@@ -57,6 +57,7 @@ def load_frame(robot_number:int) -> tuple:
     course = {k: parser.getfloat("course", k, fallback=0.0) for k in ("origin_x", "origin_y", "rotation_deg")}
     return frame, course
 
+
 class LidarNode(Node):
     def __init__(self):
         """Node constructor"""
@@ -70,6 +71,16 @@ class LidarNode(Node):
             self.is_simulation = True
         else:
             self.is_simulation = False
+class Wall():
+    def __init__(self,para,center=None,edge = None):
+        self.para=para#para = (A,B,C)
+        self.center=center
+        self.edge = edge#edge = [(first_dot),(last_dot)]
+
+class Goal():
+    def __init__(self,goal_heading=None,goal_node=None):
+        self.goal_heading = goal_heading
+        self.goal_node = goal_node
 
 class ObstacleCourseNode(Node):
     '''Node to navigate obstacle course, using pose from either gazebo odometer or optitrack and lidar scan data'''
@@ -114,6 +125,8 @@ class ObstacleCourseNode(Node):
         self.deadend_check_gap = 10# how many times the timercallback run required for deadend check once
         self.timer_callback_counter = 1
         self.farthest_dot = None
+        self.wall_list = []
+        self.gate_mse_threshold = 5
         if is_simulation:
             self.max_translate_velocity = 0.5
         else:
@@ -358,7 +371,7 @@ class ObstacleCourseNode(Node):
 
         self.dwa_config.predict_time = pre_time
         self.dwa_config.v_resolution = v_res
-
+#===============================timer_callback=====================================================
     def timer_callback(self):
         """Controller loop. Insert path planning and PID control logic here"""
         if self.pose is None:
@@ -372,7 +385,6 @@ class ObstacleCourseNode(Node):
                 #self.get_logger().info(f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)  ->  maze ({self.pose[0]:+.3f}, {self.pose[1]:+.3f}, {self.pose[2]:+7.1f} deg)")
             return # Calibration mode: look, don't drive
 
-        ###### INSERT CODE HERE ######
         #self.get_logger().info(f"Pose: {self.pose}")
 
         #DWA integration
@@ -384,20 +396,25 @@ class ObstacleCourseNode(Node):
             self.move_2D()
             return
 
-        
+        goal = Goal()
 
         if self.timer_callback_counter % self.deadend_check_gap == 0:
             self.timer_callback_counter = 1
-            self._segmentation = []            
+            self._segmentation = []
             self.segment_chipper()#genrate _segmentation
+            self.wall_list=[]
+            self.wall_generator()
             #Detect deadend_wall and change subgoal
             deadend_wall = self.deadend_detector()
+            gate = self.gate_detector()
             if deadend_wall is not None:
                 distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
                 #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
 
                 if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd:
                     self._sub_goal.pop()
+                    goal.goal_heading = self._sub_goal[-1]
+                    goal.goal_node = None
                     self.timestamp = time.monotonic()
                     if not self._sub_goal:
                         self.move_2D()
@@ -412,6 +429,10 @@ class ObstacleCourseNode(Node):
                         self.close_threshold /= 2
                         self.set_dwa_param(to_goal=0.3,speed=0.2,ob=0.01,pre_time=1.5,v_res=0.01)
                         self.get_logger().info('dwa param changed')
+
+            if gate is not None:
+                goal.goal_node = gate
+                goal.goal_heading = None
         else:
             self.timer_callback_counter+=1
 #===========================DWA======================================================================
@@ -419,8 +440,8 @@ class ObstacleCourseNode(Node):
         u, predicted_trajectory = dynamic_window_approach.dwa_control(
                                                                     self,
                                                                     x=self._state,
-                                                                    #goal=self._goal,
-                                                                    goal_heading= self._sub_goal[-1],
+                                                                    goal=goal.goal_node,
+                                                                    goal_heading= goal.goal_heading,
                                                                     ob=self._ob,
                                                                     config=self.dwa_config,
                                                                     )
@@ -450,32 +471,35 @@ class ObstacleCourseNode(Node):
             return angle_deg
     
 #
-    def check_segment(self,segment,farthest_dot):# for each segments, detect if it is a deadend wall
+    def wall_generator(self):
+        for segment in self._segmentation:
+            if len(segment) < self.check_list_threshold:
+                return None
+
+            points = np.asarray(segment, dtype=float)
+            center = points.mean(axis=0)
+            centered = points - center
+
+            _, s, vh = np.linalg.svd(centered, full_matrices=False)
+            # 第一主方向沿着墙，第二主方向垂直于墙
+            # vh[0]点云延伸最明显的方向,vh[1]法线方向
+            #s[0]点云沿第1个方向的分散程度
+            if s[0] < 1e-8:
+                return None
+
+            A, B = vh[1]  # 单位法向量，A²+B²=1
+            C = -np.dot([A, B], center)
+            this_wall = Wall((A,B,C),center=center,edge=((segment[0]),(segment[-1])))
+            self.wall_list.append(this_wall)
+    def check_segment(self,wall,farthest_dot):# for each segments, detect if it is a deadend wall
         '''
         check if it is a deadend
         '''
-        if len(segment) < self.check_list_threshold:
-            return None
-
-        points = np.asarray(segment, dtype=float)
-        center = points.mean(axis=0)
-        centered = points - center
-
-        _, s, vh = np.linalg.svd(centered, full_matrices=False)
-        # 第一主方向沿着墙，第二主方向垂直于墙
-        # vh[0]点云延伸最明显的方向,vh[1]法线方向
-        #s[0]点云沿第1个方向的分散程度
-        if s[0] < 1e-8:
-            return None
-
-        A, B = vh[1]  # 单位法向量，A²+B²=1
-        C = -np.dot([A, B], center)
+        A,B,C = wall.para
+        center = wall.center
 
         x_distance = self.measure_distance_dot_and_line(farthest_dot,(A,B,C))
         y_distance = r = np.hypot(farthest_dot[0]-center[0], farthest_dot[1]-center[1])
-        # segment_chipper() owns this list. Appending here while
-        # deadend_detector() iterates it would recheck rejected walls forever,
-        # blocking the executor and the RViz publication timer.
 
         if x_distance > self.outlier_dot_threshold and y_distance < self.outlier_offset_threshold:
             #self.get_logger().warn(f'infeasible wall! its not the farthest one:distance:{x_distance}')
@@ -492,7 +516,7 @@ class ObstacleCourseNode(Node):
             #self.get_logger().warn(f'infeasible wall!it is behind the robot')
             return None
 
-        vector_1 = vh[0]
+        vector_1 = np.array([-B, A])  # 沿墙方向，与直线法向量 (A, B) 垂直
         if self._sub_goal[-1] == '+x' or self._sub_goal[-1]=='-x':
             vector_2 = np.array([1,0])
         else:
@@ -568,10 +592,53 @@ class ObstacleCourseNode(Node):
         '''
         for each segment,check if it it a deadend
         '''
-        for segment in self._segmentation:
-            result = self.check_segment(segment=segment,farthest_dot=self.farthest_dot)
+        for wall in self.wall_list:
+            result = self.check_segment(wall=wall,farthest_dot=self.farthest_dot)
             if result is not None:
                 return result
+        return None
+    
+    def gate_detector(self):
+        distance_list = []
+        candidate_walls = []
+
+        for wall in self.wall_list:
+            A,B,C = wall.para
+            goal_direction = {
+                '+x': (1, 0), '-x': (-1, 0),
+                '+y': (0, 1), '-y': (0, -1),
+            }[self._sub_goal[-1]]
+            normal = np.array([A, B])
+            #filter walls that perpendicular to travel or in the other side
+            robot_side = normal @ self.pose[:2] + C
+            if robot_side * np.dot(normal, goal_direction) > 0:
+                continue
+
+            vector_1 = np.array([-B, A])  
+            if self._sub_goal[-1] == '+x' or self._sub_goal[-1]=='-x':
+                vector_2 = np.array([1,0])
+            else:
+                vector_2 = np.array([0,1])
+            angle_deg = self.measure_angle(vector_1,vector_2)
+            if abs(angle_deg - 90.0) > self.tilt_threshold:
+                return None
+            distance_list.append(self.measure_distance_dot_and_line(self.pose[:2],(A,B,C)))
+            candidate_walls.append(wall)
+
+        if len(candidate_walls) < 2:
+            return None
+        indices = sorted(range(len(distance_list)), key=lambda i: distance_list[i])[:2]
+        wall_1 = candidate_walls[indices[0]]
+        wall_2 = candidate_walls[indices[1]]
+
+        dA2 = (wall_1.para[0]-wall_2.para[0])**2
+        dB2 = (wall_1.para[1]-wall_2.para[1])**2
+        dC2 = (wall_1.para[2]-wall_2.para[2])**2
+        mse = dA2+dB2+dC2
+        if mse < self.gate_mse_threshold:
+            gate_center = (np.asarray(wall_1.edge[1])+np.asarray(wall_2.edge[0]))/2
+
+            return gate_center
         return None
 
 def main(args=None):
