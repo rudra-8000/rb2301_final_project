@@ -10,7 +10,7 @@ from rb2301_fp import dynamic_window_approach
 
 from rclpy.node import Node
 from rclpy.logging import set_logger_level, LoggingSeverity
-from rclpy.qos import DurabilityPolicy, ReliabilityPolicy, QoSProfile
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy, QoSProfile, qos_profile_sensor_data
 from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
@@ -61,7 +61,7 @@ class LidarNode(Node):
     def __init__(self):
         """Node constructor"""
         super().__init__("LidarNode")
-        self.sub_scan = self.create_subscription(LaserScan, "scan", self.sub_scan_callback, 2) # Subscribe to lidar
+        self.sub_scan = self.create_subscription(LaserScan, "scan", self.sub_scan_callback, qos_profile_sensor_data) # Subscribe to lidar
         self.is_simulation = None
 
     def sub_scan_callback(self, msg):
@@ -113,17 +113,17 @@ class ObstacleCourseNode(Node):
         self._segmentation = []
         self.deadend_check_gap = 10# how many times the timercallback run required for deadend check once
         self.timer_callback_counter = 1
-
+        self.farthest_dot = None
         if is_simulation:
             self.max_translate_velocity = 0.5
         else:
             self.max_translate_velocity = 0.3 # Please keep this in place; 0.3m/s is more than fast enough
 
-        self.sub_scan = self.create_subscription(LaserScan, "scan", self.sub_scan_callback, 2) # Subscribe to LiDAR scan data
+        self.sub_scan = self.create_subscription(LaserScan, "scan", self.sub_scan_callback, qos_profile_sensor_data) # Subscribe to LiDAR scan data
 
         # Subscribe to the dynamic_pose topic from Gazebo that publishes ground-truth pose data
         if self.is_simulation:
-            self.subscription = self.create_subscription(Odometry, 'odom', self.odometer_callback, 2)
+            self.subscription = self.create_subscription(Odometry, 'odom', self.odometer_callback, qos_profile_sensor_data)
         else:
             qos_profile = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT)
             # On the Bingda robots ROS_DOMAIN_ID is the robot's number, so the Optitrack topic is picked automatically
@@ -213,7 +213,7 @@ class ObstacleCourseNode(Node):
             'reference_goal', Marker.LINE_LIST, goal,
             (0.0, 0.2, 1.0), 0.035, stamp))
 
-        config = dynamic_window_approach.config
+        config = self.dwa_config
         if config.robot_type == dynamic_window_approach.RobotType.rectangle:
             outline = np.array([[-1, 1], [1, 1], [1, -1], [-1, -1], [-1, 1]])
             outline = outline * [config.robot_length / 2, config.robot_width / 2]
@@ -388,13 +388,14 @@ class ObstacleCourseNode(Node):
 
         if self.timer_callback_counter % self.deadend_check_gap == 0:
             self.timer_callback_counter = 1
-            self.get_logger().info('deadend check!')
+            self._segmentation = []            
+            self.segment_chipper()#genrate _segmentation
             #Detect deadend_wall and change subgoal
-            self._segmentation = []
             deadend_wall = self.deadend_detector()
             if deadend_wall is not None:
                 distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
-                self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
+                #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
+
                 if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd:
                     self._sub_goal.pop()
                     self.timestamp = time.monotonic()
@@ -413,8 +414,7 @@ class ObstacleCourseNode(Node):
                         self.get_logger().info('dwa param changed')
         else:
             self.timer_callback_counter+=1
-
-
+#===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
         u, predicted_trajectory = dynamic_window_approach.dwa_control(
                                                                     self,
@@ -429,8 +429,8 @@ class ObstacleCourseNode(Node):
         self._state[3] , self._state[4] = u[0], self.actual_velocity[1]    #TODO change this to real speed
         #dynamic_window_approach.animate(predicted_trajectory,self._state,self._goal,self._ob, self._segmentation)
 
-        ###### INSERT CODE HERE ######
 
+#===========================MATH=====================================================================
     @staticmethod
     def measure_distance_dot_and_line(dot,line):
         A = line[0]
@@ -448,89 +448,91 @@ class ObstacleCourseNode(Node):
             cos_theta = np.dot(vector_1, vector_2) / norm_product
             angle_deg = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
             return angle_deg
-    def deadend_detector(self):
-        """
-        利用ob数组有序的性质,检测阻挡子目标的那堵墙
-        """
+    
+#
+    def check_segment(self,segment,farthest_dot):# for each segments, detect if it is a deadend wall
+        '''
+        check if it is a deadend
+        '''
+        if len(segment) < self.check_list_threshold:
+            return None
+
+        points = np.asarray(segment, dtype=float)
+        center = points.mean(axis=0)
+        centered = points - center
+
+        _, s, vh = np.linalg.svd(centered, full_matrices=False)
+        # 第一主方向沿着墙，第二主方向垂直于墙
+        # vh[0]点云延伸最明显的方向,vh[1]法线方向
+        #s[0]点云沿第1个方向的分散程度
+        if s[0] < 1e-8:
+            return None
+
+        A, B = vh[1]  # 单位法向量，A²+B²=1
+        C = -np.dot([A, B], center)
+
+        x_distance = self.measure_distance_dot_and_line(farthest_dot,(A,B,C))
+        y_distance = r = np.hypot(farthest_dot[0]-center[0], farthest_dot[1]-center[1])
+        # segment_chipper() owns this list. Appending here while
+        # deadend_detector() iterates it would recheck rejected walls forever,
+        # blocking the executor and the RViz publication timer.
+
+        if x_distance > self.outlier_dot_threshold and y_distance < self.outlier_offset_threshold:
+            #self.get_logger().warn(f'infeasible wall! its not the farthest one:distance:{x_distance}')
+            return None
+
+        goal_direction = {
+            '+x': (1, 0), '-x': (-1, 0),
+            '+y': (0, 1), '-y': (0, -1),
+        }[self._sub_goal[-1]]
+        normal = np.array([A, B])
+        # Reject a wall behind the robot along the current goal direction.
+        robot_side = normal @ self.pose[:2] + C
+        if robot_side * np.dot(normal, goal_direction) > 0:
+            #self.get_logger().warn(f'infeasible wall!it is behind the robot')
+            return None
+
+        vector_1 = vh[0]
+        if self._sub_goal[-1] == '+x' or self._sub_goal[-1]=='-x':
+            vector_2 = np.array([1,0])
+        else:
+            vector_2 = np.array([0,1])
+
+        angle_deg = self.measure_angle(vector_1,vector_2)
+        # A blocking wall is perpendicular to travel; SVD signs are arbitrary.
+        if abs(angle_deg - 90.0) > self.tilt_threshold:
+            #self.get_logger().warn(f'infeasible wall!it is not in good angle')
+            return None
         
+        return (A,B,C)
+    
+    def segment_chipper(self):
         if self.pose is None or self._ob.size == 0 or not self._sub_goal:
             return None
 
-        def check_segment(segment,farthest_dot):
-            if len(segment) < self.check_list_threshold:
-                return None
-
-            points = np.asarray(segment, dtype=float)
-            center = points.mean(axis=0)
-            centered = points - center
-
-            _, s, vh = np.linalg.svd(centered, full_matrices=False)
-            # 第一主方向沿着墙，第二主方向垂直于墙
-            # vh[0]点云延伸最明显的方向,vh[1]法线方向
-            #s[0]点云沿第1个方向的分散程度
-            if s[0] < 1e-8:
-                return None
-
-            A, B = vh[1]  # 单位法向量，A²+B²=1
-            C = -np.dot([A, B], center)
-
-            x_distance = self.measure_distance_dot_and_line(farthest_dot,(A,B,C))
-            y_distance = r = np.hypot(farthest_dot[0]-center[0], farthest_dot[1]-center[1])
-            self._segmentation.append(segment)  #add valid segment for animation  
-
-            if x_distance > self.outlier_dot_threshold and y_distance < self.outlier_offset_threshold:
-                #self.get_logger().warn(f'infeasible wall! its not the farthest one:distance:{x_distance}')
-                return None
-
-            goal_direction = {
-                '+x': (1, 0), '-x': (-1, 0),
-                '+y': (0, 1), '-y': (0, -1),
-            }[self._sub_goal[-1]]
-            normal = np.array([A, B])
-            # Reject a wall behind the robot along the current goal direction.
-            robot_side = normal @ self.pose[:2] + C
-            if robot_side * np.dot(normal, goal_direction) > 0:
-                #self.get_logger().warn(f'infeasible wall!it is behind the robot')
-                return None
-
-            vector_1 = vh[0]
-            if self._sub_goal[-1] == '+x' or self._sub_goal[-1]=='-x':
-                vector_2 = np.array([1,0])
-            else:
-                vector_2 = np.array([0,1])
-
-            angle_deg = self.measure_angle(vector_1,vector_2)
-            # A blocking wall is perpendicular to travel; SVD signs are arbitrary.
-            if abs(angle_deg - 90.0) > self.tilt_threshold:
-                #self.get_logger().warn(f'infeasible wall!it is not in good angle')
-                return None
-            
-            return (A,B,C)
-
         # Find the global extreme before accepting any candidate segment.
-        farthest_dot=self.pose[:2]
+        self.farthest_dot=self.pose[:2]
         last_dot = None
         
         for dot in self._ob:
             if self._sub_goal[-1] == '+x':# update the farthest dot
-                if dot[0]>farthest_dot[0]:
-                    farthest_dot = dot
+                if dot[0]>self.farthest_dot[0]:
+                    self.farthest_dot = dot
             elif self._sub_goal[-1] == '-x':
-                if dot[0]<farthest_dot[0]:
-                    farthest_dot = dot
+                if dot[0]<self.farthest_dot[0]:
+                    self.farthest_dot = dot
             elif self._sub_goal[-1] == '+y':
-                if dot[1]>farthest_dot[1]:
-                    farthest_dot = dot
+                if dot[1]>self.farthest_dot[1]:
+                    self.farthest_dot = dot
             elif self._sub_goal[-1] == '-y':
-                if dot[1]<farthest_dot[1]:
-                    farthest_dot = dot
+                if dot[1]<self.farthest_dot[1]:
+                    self.farthest_dot = dot
             else:
                 raise ValueError('_sub_goal should only contain "+x","-x","+y"or"-y"')
 
         continuous_list=[]
         aver_hist_vector = None
         fracture = False
-
         cache_segment=[]
         fractured_flag = False
         for dot in self._ob:
@@ -549,9 +551,8 @@ class ObstacleCourseNode(Node):
                         fracture = True
                         aver_hist_vector = new_vector
             if (last_dot is not None and distance > self.density_threshold) or (aver_hist_vector is not None and fracture == True):  #once the continuous list fracture or reaches the end
-                result = check_segment(continuous_list,farthest_dot)
-                if result is not None:
-                    return result
+                if len(continuous_list) >= self.check_list_threshold:
+                    self._segmentation.append(continuous_list)
                 continuous_list=[dot]
                 fractured_flag = True
             else:
@@ -561,7 +562,17 @@ class ObstacleCourseNode(Node):
                     continuous_list.append(dot)
             last_dot = dot
         continuous_list =continuous_list + cache_segment
-        return check_segment(continuous_list,farthest_dot)
+        self._segmentation.append(continuous_list)
+
+    def deadend_detector(self):
+        '''
+        for each segment,check if it it a deadend
+        '''
+        for segment in self._segmentation:
+            result = self.check_segment(segment=segment,farthest_dot=self.farthest_dot)
+            if result is not None:
+                return result
+        return None
 
 def main(args=None):
     arg_parser = argparse.ArgumentParser(description="RB2301 final project")
