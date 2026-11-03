@@ -421,7 +421,7 @@ class ObstacleCourseNode(Node):
             return
         self._gate_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.015,pre_time=1.5,v_res=0.01)
+        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.02,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):

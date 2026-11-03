@@ -47,6 +47,7 @@ class Config:
 
             self.speed_cost_gain = 1.2
             self.obstacle_cost_gain = 0.1
+            self.obstacle_turn_cost_gain = 0.5
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
@@ -57,6 +58,7 @@ class Config:
             # if robot_type == RobotType.rectangle
             self.robot_width = 0.2  # [m] for collision check
             self.robot_length = 0.2  # [m] for collision check
+
             # obstacles [x(m) y(m), ....]
         
         else:   #IRL param
@@ -77,6 +79,8 @@ class Config:
 
             self.speed_cost_gain = 0.6
             self.obstacle_cost_gain = 0.02
+            self.obstacle_turn_cost_gain = 0.5
+
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
@@ -194,8 +198,9 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
                 to_goal_cost = config.to_goal_cost_gain * calc_to_goal_cost(trajectory, goal)
                 to_goal_cost += config.to_goal_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
 
-            speed_cost = config.speed_cost_gain * (config.max_speed - abs(trajectory[-1, 3]))
+            speed_cost = config.speed_cost_gain * (config.max_speed - max(0,trajectory[-1, 3]))
             ob_cost = config.obstacle_cost_gain * calc_obstacle_cost(trajectory, ob, config)
+            ob_cost += config.obstacle_turn_cost_gain * calc_obstacle_turn_cost(trajectory,ob,config)
 
             final_cost = to_goal_cost + speed_cost + ob_cost
             cost_list = [to_goal_cost,speed_cost , ob_cost]
@@ -261,6 +266,15 @@ def calc_obstacle_cost(trajectory, ob, config):
     # All points still contribute to clearance, including broad-phase rejects.
     return 1.0 / np.min(r)
 
+def calc_obstacle_turn_cost(trajectory,ob,config):
+    """Return the negative angle between robot-to-obstacle and final heading."""
+    if np.size(ob) == 0:
+        return 0.0
+
+    vectors = np.asarray(ob) - trajectory[0, :2]
+    a = vectors[np.argmin(np.linalg.norm(vectors, axis=1))]
+    angle_error = math.atan2(a[1], a[0]) - trajectory[-1, 2]
+    return max(   -abs(math.atan2(math.sin(angle_error), math.cos(angle_error)))  ,  -np.pi/3)
 
 def calc_to_goal_cost(trajectory, goal):
     """
@@ -277,7 +291,7 @@ def calc_to_goal_cost(trajectory, goal):
 def calc_to_goal_node_dist_cost(trajectory,goal):
     dx = goal[0] - trajectory[-1, 0]
     dy = goal[1] - trajectory[-1, 1]
-    d = np.sqrt(dx**2,dy**2)
+    d = np.hypot(dx, dy)
     return d
 
 def calc_to_goal_heading_cost(trajectory,goal_heading):
