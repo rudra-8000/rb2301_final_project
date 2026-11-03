@@ -280,7 +280,6 @@ def calc_to_goal_node_dist_cost(trajectory,goal):
     d = np.sqrt(dx**2,dy**2)
     return d
 
-def 
 def calc_to_goal_heading_cost(trajectory,goal_heading):
     """
         Absolute wrapped angle error to the target heading, in radians.
