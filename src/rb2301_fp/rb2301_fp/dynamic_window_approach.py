@@ -41,13 +41,18 @@ class Config:
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.5  # [s]
 
-            self.to_goal_cost_gain = 0.5
-            self.to_goal_heading_cost_gain = 0.1
-            self.to_goal_dist_cost_gain = 0.5
+            self.to_goal_node_cost_gain = 0.5      # in angle
+            self.to_goal_node_dist_cost_gain = 2 # in distance
+
+            self.to_goal_heading_cost_gain = 0.1        #in angle
+            self.to_goal_heading_dist_cost_gain = 0.5   #in distance
 
             self.speed_cost_gain = 1.2
+            self.speed_back_gain = 0.7
+
             self.obstacle_cost_gain = 0.1
-            self.obstacle_turn_cost_gain = 0.5
+            self.obstacle_turn_cost_gain = 1.0
+
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
@@ -73,11 +78,15 @@ class Config:
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.0  # [s]
 
-            self.to_goal_cost_gain = 0.10
-            self.to_goal_heading_cost_gain = 0.15
-            self.to_goal_dist_cost_gain = 0.01
+            self.to_goal_node_cost_gain = 0.5      # in angle
+            self.to_goal_node_dist_cost_gain = 0.5 # in distance
+
+            self.to_goal_heading_cost_gain = 0.1        #in angle
+            self.to_goal_heading_dist_cost_gain = 0.5   #in distance
 
             self.speed_cost_gain = 0.6
+            self.speed_back_gain = 0.2
+
             self.obstacle_cost_gain = 0.02
             self.obstacle_turn_cost_gain = 0.5
 
@@ -193,12 +202,16 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
             
             if goal_heading is not None:
                 to_goal_cost = config.to_goal_heading_cost_gain * calc_to_goal_heading_cost(trajectory,goal_heading)
-                to_goal_cost += config.to_goal_dist_cost_gain * calc_to_goal_heading_dist_cost(trajectory,goal_heading)
+                to_goal_cost += config.to_goal_heading_dist_cost_gain * calc_to_goal_heading_dist_cost(trajectory,goal_heading)
             if goal is not None:
-                to_goal_cost = config.to_goal_cost_gain * calc_to_goal_cost(trajectory, goal)
-                to_goal_cost += config.to_goal_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
+                to_goal_cost = config.to_goal_node_cost_gain * calc_to_goal_cost(trajectory, goal)
+                to_goal_cost += config.to_goal_node_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
 
-            speed_cost = config.speed_cost_gain * (config.max_speed - max(0,trajectory[-1, 3]))
+            diff = config.max_speed - max(0,trajectory[-1, 3])
+            if diff > 0:
+                speed_cost = config.speed_cost_gain * diff
+            else:
+                speed_cost = config.speed_back_cost_gain * diff
             ob_cost = config.obstacle_cost_gain * calc_obstacle_cost(trajectory, ob, config)
             ob_cost += config.obstacle_turn_cost_gain * calc_obstacle_turn_cost(trajectory,ob,config)
 
@@ -288,6 +301,7 @@ def calc_to_goal_cost(trajectory, goal):
     cost = abs(math.atan2(math.sin(cost_angle), math.cos(cost_angle)))
 
     return cost
+
 def calc_to_goal_node_dist_cost(trajectory,goal):
     dx = goal[0] - trajectory[-1, 0]
     dy = goal[1] - trajectory[-1, 1]

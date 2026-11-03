@@ -409,7 +409,7 @@ class ObstacleCourseNode(Node):
         if self._start_stage_started:
             return
         self._start_stage_started = True
-        self.set_dwa_param(to_goal_heading=0.1,speed=1.2,ob=0.07,pre_time=1.5,v_res=0.02)
+        self.set_dwa_param(to_goal_heading=0.1,speed=1.2,ob=0.1,pre_time=1.5,v_res=0.02)
         self.get_logger().info('enter start stage!dwa param changed')
 
     def final_stage(self):
@@ -417,7 +417,7 @@ class ObstacleCourseNode(Node):
             return
         self._final_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_heading=0.5,speed=0.5,ob=0.05,pre_time=1.5,v_res=0.01)
+        self.set_dwa_param(to_goal_heading=0.5,speed=1.5,ob=0.5,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter final stage!dwa param changed')
 
     def gate_stage(self):
@@ -425,7 +425,7 @@ class ObstacleCourseNode(Node):
             return
         self._gate_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.05,pre_time=1.5,v_res=0.01)
+        self.set_dwa_param(to_goal_node=0.5,speed=1,ob=0.2,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):
@@ -474,9 +474,7 @@ class ObstacleCourseNode(Node):
                         self._sub_goal.pop()
                         self.timestamp = time.monotonic()
                         if not self._sub_goal:
-                            self._goal.goal_node = None
-                            self.get_logger().info('All sub-goals completed')
-                            return
+                            self._goal.goal_heading = self._sub_goal_2[-1]
 
                         self._goal.goal_heading = self._sub_goal[-1]
                         self.get_logger().info(
