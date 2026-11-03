@@ -39,6 +39,14 @@ Two terminals, both in the workspace folder:
 
 The goal is to get past the moving obstacles. To start the robot somewhere else (for example past the gate), change `x:=` and `y:=` in `gz_fp.sh`; a commented example is in the file. Stop with `Ctrl+C`.
 
+To disable both static and moving obstacles while keeping the maze walls and gate:
+
+```bash
+./gz_fp.sh disable_obstacles:=true
+```
+
+The launch argument defaults to `false`, so `./gz_fp.sh` still generates obstacles.
+
 The unchanged starter code just drives forward at 0.1 m/s.
 
 ## RViz visualization (including a node started over SSH)

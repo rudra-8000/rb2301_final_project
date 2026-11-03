@@ -32,13 +32,13 @@ def add_element(x, y, n, element_model):
     obstacle.append(pose)
     return obstacle
 
-def modify_sdf_file():
+def modify_sdf_file(disable_obstacles=False):
     if os.path.exists(overwrite_file):
         os.remove(overwrite_file)
     copy2(original_file, overwrite_file)
 
     print(f"Randomising: Gate position={randomise_gate_position}, zigzag size:{randomise_zigzag_size}, obstacle speed:{randomise_obstacle_speed}")
-    print(f"Spawn coke obstacles:{spawn_static_obstacles} and randomise coke positions:{randomise_static_obstacles}") 
+    print(f"Spawn obstacles:{not disable_obstacles}, static obstacles:{spawn_static_obstacles and not disable_obstacles} and randomise positions:{randomise_static_obstacles}")
 
     tree = ET.parse(overwrite_file)
     root = tree.getroot()
@@ -76,6 +76,9 @@ def modify_sdf_file():
 
         # Edit obstacles
         elif element.tag == 'actor':
+            if disable_obstacles:
+                world.remove(element)
+                continue
             trajectory = element.find('script').find('trajectory') # waypoints of this obstacle
             if randomise_obstacle_speed:
                 random_time = np.random.random()*4.0 + 2.0 # Random half-period between [2, 5] seconds
@@ -89,7 +92,7 @@ def modify_sdf_file():
                     waypoint_pose[1] = str(float(waypoint_pose[1]) + y_offset)
                     trajectory[waypoint_idx][1].text = ' '.join(waypoint_pose)  
 
-    if spawn_static_obstacles:
+    if spawn_static_obstacles and not disable_obstacles:
         static_obstacle_positions = np.array([
             [0.6, 0.0, 0],
             [2.4+x_offset, -0.6+y_offset, 0],

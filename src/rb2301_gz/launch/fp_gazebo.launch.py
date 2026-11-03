@@ -1,6 +1,7 @@
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -11,7 +12,13 @@ import sys, os
 sys.path.insert(2, os.path.dirname(os.path.realpath(__file__))[:-16]+'rb2301_fp/rb2301_fp')
 print(os.path.realpath(__file__)[:-27], os.path.dirname(os.path.realpath(__file__))[:-16]+'rb2301_fp/rb2301_fp')
 from obstacle_modifier import modify_sdf_file
-modify_sdf_file()
+
+
+def prepare_world(context):
+    disable_obstacles = IfCondition(
+        LaunchConfiguration('disable_obstacles')).evaluate(context)
+    modify_sdf_file(disable_obstacles=disable_obstacles)
+    return []
 
 
 def generate_launch_description():
@@ -48,6 +55,12 @@ def generate_launch_description():
         pkg_rb2301_gz, 'worlds', LaunchConfiguration('world')
     ])
     ld.add_action(arg_world)
+    ld.add_action(DeclareLaunchArgument(
+        'disable_obstacles',
+        default_value='false',
+        description='Disable static and moving obstacles; keep maze walls and gate'
+    ))
+    ld.add_action(OpaqueFunction(function=prepare_world))
 
     # publishes the robot states into robot_description topic, along with transforms.
     robot_state_publisher_node = Node(

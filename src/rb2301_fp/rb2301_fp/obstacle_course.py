@@ -101,7 +101,7 @@ class ObstacleCourseNode(Node):
         #DWA
         self._state = np.array([0.0, 0.0, 0.0 , 0.0, 0.0])  #state representation:
         #                      [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-        self._goal = np.array([5.0, 0.0])
+        self._goal = Goal()
 
         if self.is_simulation == False:
             self._sub_goal = ['+y','+x','+y']# sub_goal_heading, in reverse order
@@ -220,7 +220,7 @@ class ObstacleCourseNode(Node):
             (0.1, 0.1, 0.1), 0.035, stamp))
 
         # Blue cross, as in animate(); DWA currently follows _sub_goal instead.
-        goal = [] if self._goal is None else np.asarray(self._goal) + np.array(
+        goal = [] if self._goal.goal_node is None else np.asarray(self._goal.goal_node) + np.array(
             [[-0.1, -0.1], [0.1, 0.1], [-0.1, 0.1], [0.1, -0.1]])
         scene.markers.append(self._rviz_marker(
             'reference_goal', Marker.LINE_LIST, goal,
@@ -332,7 +332,9 @@ class ObstacleCourseNode(Node):
         self.publisher_.publish(twist_msg)
 
     def is_goal_reached(self,threshold = 0.3)->bool:
-        dist_to_goal = math.hypot(self._state[0] - self._goal[0], self._state[1] - self._goal[1])
+        if self._goal.goal_node is None:
+            return False
+        dist_to_goal = math.hypot(self._state[0] - self._goal.goal_node[0], self._state[1] - self._goal.goal_node[1])
         if dist_to_goal <= threshold:
             print("Goal!!")
             return True
@@ -396,7 +398,7 @@ class ObstacleCourseNode(Node):
             self.move_2D()
             return
 
-        goal = Goal()
+        self._goal = Goal()
 
         if self.timer_callback_counter % self.deadend_check_gap == 0:
             self.timer_callback_counter = 1
@@ -411,10 +413,10 @@ class ObstacleCourseNode(Node):
                 distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
                 #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
 
-                if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd:
+                if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd and self._goal.goal_node is None:
                     self._sub_goal.pop()
-                    goal.goal_heading = self._sub_goal[-1]
-                    goal.goal_node = None
+                    self._goal.goal_heading = self._sub_goal[-1]
+                    self._goal.goal_node = None
                     self.timestamp = time.monotonic()
                     if not self._sub_goal:
                         self.move_2D()
@@ -431,17 +433,21 @@ class ObstacleCourseNode(Node):
                         self.get_logger().info('dwa param changed')
 
             if gate is not None:
-                goal.goal_node = gate
-                goal.goal_heading = None
+                self._goal.goal_node = gate
+                self._goal.goal_heading = None
         else:
             self.timer_callback_counter+=1
+
+        if self.is_goal_reached():
+            self._goal.goal_node = None
+            self._goal.goal_heading = None
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
         u, predicted_trajectory = dynamic_window_approach.dwa_control(
                                                                     self,
                                                                     x=self._state,
-                                                                    goal=goal.goal_node,
-                                                                    goal_heading= goal.goal_heading,
+                                                                    goal=self._goal.goal_node,
+                                                                    goal_heading= self._goal.goal_heading,
                                                                     ob=self._ob,
                                                                     config=self.dwa_config,
                                                                     )
@@ -637,7 +643,7 @@ class ObstacleCourseNode(Node):
         mse = dA2+dB2+dC2
         if mse < self.gate_mse_threshold:
             gate_center = (np.asarray(wall_1.edge[1])+np.asarray(wall_2.edge[0]))/2
-
+            self.get_logger().error(f'detected a gate!{gate_center}')
             return gate_center
         return None
 

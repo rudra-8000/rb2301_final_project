@@ -46,7 +46,7 @@ class Config:
             self.to_goal_dist_cost_gain = 5
 
             self.speed_cost_gain = 1.7
-            self.obstacle_cost_gain = 0.2
+            self.obstacle_cost_gain = 0.1
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
@@ -214,14 +214,14 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
         # angle difference of 0)
         best_u[1] = (-1) ** np.random.randint(1, 2) * config.max_delta_yaw_rate * 0.5
 
-        self.get_logger().warn('stucked!turning...')
-    else:
-        if best_cost_list:
-            self.get_logger().info(f'best cost config:')
-            self.get_logger().info(f'to_goal:{best_cost_list[0]}')
-            self.get_logger().info(f'speed_cost:{best_cost_list[1]}')
-            self.get_logger().info(f'ob_cost:{best_cost_list[2]}')
-            self.get_logger().info(f'to_goal_dist_cost:{best_cost_list[3]}')   
+        #self.get_logger().warn('stucked!turning...')
+    #else:
+        #if best_cost_list:
+            #self.get_logger().info(f'best cost config:')
+            #self.get_logger().info(f'to_goal:{best_cost_list[0]}')
+            #self.get_logger().info(f'speed_cost:{best_cost_list[1]}')
+            #self.get_logger().info(f'ob_cost:{best_cost_list[2]}')
+            #self.get_logger().info(f'to_goal_dist_cost:{best_cost_list[3]}')   
     return best_u, best_trajectory
 
 
