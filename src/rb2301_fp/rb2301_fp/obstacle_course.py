@@ -99,7 +99,7 @@ class Goal():
     def goal_node(self, value):
         self._goal_node = value
         self._goal_heading = None
-
+#============================================node==================================================================================
 class ObstacleCourseNode(Node):
     '''Node to navigate obstacle course, using pose from either gazebo odometer or optitrack and lidar scan data'''
     def __init__(self, is_simulation:bool=True, calibrate:bool=False):
@@ -123,8 +123,14 @@ class ObstacleCourseNode(Node):
 
         if self.is_simulation == False:
             self._sub_goal = ['+y','+x','+y']# sub_goal_heading, in reverse order
+            self._sub_goal_2 = ['+y']
         else:
-            self._sub_goal = ['+x','+x','-y','+x']
+            self._sub_goal = ['+x','-y','+x']
+            self._sub_goal_2 = ['+x']
+        self._goal.goal_heading = self._sub_goal[-1]
+        self._start_stage_started = False
+        self._gate_stage_started = False
+        self._final_stage_started = False
 
         self._trajectory = np.array(self._state)
         self._ob = np.array([]) #obstacle array
@@ -144,9 +150,10 @@ class ObstacleCourseNode(Node):
         self.timer_callback_counter = 1
         self.farthest_dot = None
         self.wall_list = []
-        self.gate_mse_threshold = 0.5
-        self.min_gate_width_threshold=0.1
-        self.max_gate_width_threshold=0.7
+        self.gate_mse_threshold = 0.1
+        self.min_gate_width_threshold=0.2
+        self.max_gate_width_threshold=0.5
+        self.stage = 'start'#start gate final
         if is_simulation:
             self.max_translate_velocity = 0.5
         else:
@@ -177,7 +184,7 @@ class ObstacleCourseNode(Node):
 
         self.pose = None
         self.init_rviz_visualization()
-
+#==============================================================================================================
     # RViz visualization
     def init_rviz_visualization(self):
         """Publish ROS messages only; safe to run over SSH without DISPLAY."""
@@ -267,8 +274,8 @@ class ObstacleCourseNode(Node):
 
         direction = {'+x': (1, 0), '-x': (-1, 0), '+y': (0, 1), '-y': (0, -1)}
         sub_goal = []
-        if self._sub_goal:
-            sub_goal = [position, position + 0.8 * np.array(direction[self._sub_goal[-1]])]
+        if self._goal.goal_heading:
+            sub_goal = [position, position + 0.8 * np.array(direction[self._goal.goal_heading])]
         arrow = self._rviz_marker('sub_goal_heading', Marker.ARROW, sub_goal,
                                   (0.0, 0.65, 0.9), 0.035, stamp, z=0.12)
         arrow.scale.y, arrow.scale.z = 0.09, 0.12
@@ -386,18 +393,36 @@ class ObstacleCourseNode(Node):
         self.last_pose = self.pose.copy()
         self.last_timestamp = timestamp
 
-    def set_dwa_param(self,to_goal_heading, to_goal_node,speed, ob, pre_time, v_res):  #Update DWA param online
+    def set_dwa_param(self,to_goal_heading=None, to_goal_node=None,speed=0.5, ob=0.01, pre_time=1.5, v_res=0.01):  #Update DWA param online
         self.dwa_config.speed_cost_gain = speed
         self.dwa_config.obstacle_cost_gain = ob
         self.dwa_config.to_goal_heading_cost_gain = to_goal_heading
-        self.dwa_config.to_toal_cost_gain = to_goal_node
+        self.dwa_config.to_goal_cost_gain = to_goal_node
         self.dwa_config.predict_time = pre_time
         self.dwa_config.v_resolution = v_res
+#=====================================stage_para_initialization==========================================
+    def start_stage(self):
+        if self._start_stage_started:
+            return
+        self._start_stage_started = True
+        self.set_dwa_param(to_goal_heading=0.1,speed=1.2,ob=0.07,pre_time=1.5,v_res=0.02)
+        self.get_logger().info('enter start stage!dwa param changed')
 
     def final_stage(self):
+        if self._final_stage_started:
+            return
+        self._final_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_heading=0.3,to_goal_node=1,speed=0.2,ob=0.01,pre_time=1.5,v_res=0.01)
-        self.get_logger().info('dwa param changed')
+        self.set_dwa_param(to_goal_heading=0.5,speed=0.5,ob=0.01,pre_time=1.5,v_res=0.01)
+        self.get_logger().info('enter final stage!dwa param changed')
+
+    def gate_stage(self):
+        if self._gate_stage_started:
+            return
+        self._gate_stage_started = True
+        self.close_threshold /= 2
+        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.015,pre_time=1.5,v_res=0.01)
+        self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):
         """Controller loop. Insert path planning and PID control logic here"""
@@ -423,45 +448,55 @@ class ObstacleCourseNode(Node):
             self.move_2D()
             return
 
-        if self.timer_callback_counter % self.deadend_check_gap == 0:
-            self.timer_callback_counter = 1
-            self._segmentation = []
-            self.segment_chipper()#genrate _segmentation
-            self.wall_list=[]
-            self.wall_generator()
-            #Detect deadend_wall and change subgoal
-            deadend_wall = self.deadend_detector()
+        if self.stage == 'start':
+            self.start_stage()
+            if self.timer_callback_counter % self.deadend_check_gap == 0:
+                self.timer_callback_counter = 1
+                self._segmentation = []
+                self.segment_chipper()#genrate _segmentation
+                self.wall_list=[]
+                self.wall_generator()
+                #Detect deadend_wall and change subgoal
+                deadend_wall = self.deadend_detector()
 
-            if self._goal.goal_node is None:
-                self._goal.goal_node = self.gate_detector("+x")
-                self.final_stage()
-                self._sub_goal[-1]='+x'
-            if deadend_wall is not None:
-                distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
-                #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
+                # Only the final sub-goal searches for the exit gate.
+                gate = self.gate_detector("+x")
+                if gate is not None:
+                    self._goal.goal_node = gate
+                    self.stage = 'gate'
 
-                if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd and self._goal.goal_node is None:
-                    self._sub_goal.pop()
-                    self._goal.goal_heading = self._sub_goal[-1]
-                    self._goal.goal_node = None
-                    self.timestamp = time.monotonic()
-                    if not self._sub_goal:
-                        self.move_2D()
-                        self.get_logger().info('All sub-goals completed')
-                        return
+                elif deadend_wall is not None:
+                    distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
+                    #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
 
-                    self.get_logger().info(
-                        f'switch to the next _sub_goal!{self._sub_goal[-1]}'
-                    )
+                    if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd:
+                        self._sub_goal.pop()
+                        self.timestamp = time.monotonic()
+                        if not self._sub_goal:
+                            self._goal.goal_node = None
+                            self.get_logger().info('All sub-goals completed')
+                            return
 
-                    if (len(self._sub_goal) == 1):
-                        self.final_stage()
+                        self._goal.goal_heading = self._sub_goal[-1]
+                        self.get_logger().info(
+                            f'switch to the next _sub_goal!{self._sub_goal[-1]}'
+                        )
 
-        else:
-            self.timer_callback_counter+=1
+            else:
+                self.timer_callback_counter+=1
 
-        if self.is_goal_reached():
-            self._goal.goal_node = None
+
+        if self.stage == 'gate':
+            self.gate_stage()
+            if self.is_goal_reached():
+                self._goal.goal_node = None
+                self.get_logger().info('gate reached')
+                self.stage = 'final'
+
+        if self.stage == 'final':
+            self._goal.goal_heading = self._sub_goal_2[-1]
+            self.final_stage()
+
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
         u, predicted_trajectory = dynamic_window_approach.dwa_control(
@@ -680,7 +715,7 @@ class ObstacleCourseNode(Node):
                 return None
             gate_center = (np.asarray(wall_1.edge[1])+np.asarray(wall_2.edge[0]))/2
             self.get_logger().error(f'detected a gate!{gate_center}')
-            gate_center[0] += 0.3
+            gate_center[0] += 0.15
             return gate_center
         self.get_logger().debug(
             f'Gate detection: candidates={len(candidate_walls)}, '

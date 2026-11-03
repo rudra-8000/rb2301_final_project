@@ -186,18 +186,19 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
             trajectory = predict_trajectory(x_init, v, y, config)
             # calc cost
             to_goal_cost = 0
-            to_goal_dist_cost = 0
+            
             if goal_heading is not None:
                 to_goal_cost = config.to_goal_heading_cost_gain * calc_to_goal_heading_cost(trajectory,goal_heading)
-                to_goal_dist_cost = config.to_goal_dist_cost_gain * calc_to_goal_dist_cost(trajectory,goal_heading)
+                to_goal_cost += config.to_goal_dist_cost_gain * calc_to_goal_heading_dist_cost(trajectory,goal_heading)
             if goal is not None:
                 to_goal_cost = config.to_goal_cost_gain * calc_to_goal_cost(trajectory, goal)
+                to_goal_cost += config.to_goal_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
 
             speed_cost = config.speed_cost_gain * (config.max_speed - abs(trajectory[-1, 3]))
             ob_cost = config.obstacle_cost_gain * calc_obstacle_cost(trajectory, ob, config)
 
-            final_cost = to_goal_cost + speed_cost + ob_cost + to_goal_dist_cost
-            cost_list = [to_goal_cost,speed_cost , ob_cost , to_goal_dist_cost]
+            final_cost = to_goal_cost + speed_cost + ob_cost
+            cost_list = [to_goal_cost,speed_cost , ob_cost]
             # search minimum trajectory
             if np.isfinite(final_cost) and min_cost >= final_cost:
                 min_cost = final_cost
@@ -273,7 +274,13 @@ def calc_to_goal_cost(trajectory, goal):
     cost = abs(math.atan2(math.sin(cost_angle), math.cos(cost_angle)))
 
     return cost
+def calc_to_goal_node_dist_cost(trajectory,goal):
+    dx = goal[0] - trajectory[-1, 0]
+    dy = goal[1] - trajectory[-1, 1]
+    d = np.sqrt(dx**2,dy**2)
+    return d
 
+def 
 def calc_to_goal_heading_cost(trajectory,goal_heading):
     """
         Absolute wrapped angle error to the target heading, in radians.
@@ -291,7 +298,7 @@ def calc_to_goal_heading_cost(trajectory,goal_heading):
     angle_error = target_yaw - trajectory[-1, 2]
     return abs(math.atan2(math.sin(angle_error), math.cos(angle_error)))
 
-def calc_to_goal_dist_cost(trajectory,goal_heading):
+def calc_to_goal_heading_dist_cost(trajectory,goal_heading):
 
     if goal_heading == '+x':
         d = - trajectory[-1, 0]
