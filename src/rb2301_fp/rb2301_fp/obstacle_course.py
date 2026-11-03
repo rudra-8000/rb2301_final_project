@@ -142,8 +142,12 @@ class ObstacleCourseNode(Node):
         self.outlier_offset_threshold = 3
         self.tilt_threshold = 5 # in angular
         self.close_threshold = 1# how close to a deadend triggers transformation to the next _sub_goal
+        self.deadend_confirm_checks = 3 # consecutive checks of the same wall
+        self.deadend_wall_tolerance = 0.15 # fitted wall offset tolerance, metres
+        self._deadend_candidate = None
+        self._deadend_hits = 0
         self.curve_threshold = 25# beyond the angle will not be seen as a single wall
-        self.sub_goal_cd =1.0# sub_goal switch cooldown,in seconds
+        self.sub_goal_cd =3.0# sub_goal switch cooldown,in seconds
         self.timestamp = 0.0#
         self._segmentation = []
         self.deadend_check_gap = 10# how many times the timercallback run required for deadend check once
@@ -151,7 +155,7 @@ class ObstacleCourseNode(Node):
         self.farthest_dot = None
         self.wall_list = []
         self.gate_mse_threshold = 0.1
-        self.min_gate_width_threshold=0.2
+        self.min_gate_width_threshold=0.3
         self.max_gate_width_threshold=0.5
         self.stage = 'start'#start gate final
         if is_simulation:
@@ -413,7 +417,7 @@ class ObstacleCourseNode(Node):
             return
         self._final_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_heading=0.5,speed=0.5,ob=0.01,pre_time=1.5,v_res=0.01)
+        self.set_dwa_param(to_goal_heading=0.5,speed=0.5,ob=0.05,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter final stage!dwa param changed')
 
     def gate_stage(self):
@@ -421,7 +425,7 @@ class ObstacleCourseNode(Node):
             return
         self._gate_stage_started = True
         self.close_threshold /= 2
-        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.02,pre_time=1.5,v_res=0.01)
+        self.set_dwa_param(to_goal_node=1,speed=1,ob=0.05,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):
@@ -465,11 +469,8 @@ class ObstacleCourseNode(Node):
                     self._goal.goal_node = gate
                     self.stage = 'gate'
 
-                elif deadend_wall is not None:
-                    distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
-                    #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
-
-                    if distance_to_deadend_wall <= self.close_threshold and time.monotonic()>=self.timestamp+self.sub_goal_cd:
+                else:
+                    if self.confirm_deadend(deadend_wall):
                         self._sub_goal.pop()
                         self.timestamp = time.monotonic()
                         if not self._sub_goal:
@@ -553,6 +554,35 @@ class ObstacleCourseNode(Node):
             C = -np.dot([A, B], center)
             this_wall = Wall((A,B,C),center=center,edge=((segment[0]),(segment[-1])))
             self.wall_list.append(this_wall)
+    def confirm_deadend(self, wall):
+        """Require repeated observations of one nearby wall."""
+        distance = (self.measure_distance_dot_and_line(self.pose, wall)
+                    if wall is not None else float('inf'))
+        if (distance > self.close_threshold
+                or time.monotonic() < self.timestamp + self.sub_goal_cd):
+            self._deadend_candidate = None
+            self._deadend_hits = 0
+            return False
+
+        candidate = np.asarray(wall, dtype=float)
+        candidate = candidate / np.linalg.norm(candidate[:2])
+        previous = self._deadend_candidate
+        if previous is not None and np.dot(candidate[:2], previous[:2]) < 0:
+            candidate = -candidate
+        same_wall = (previous is not None
+                     and np.dot(candidate[:2], previous[:2]) >= math.cos(math.radians(self.tilt_threshold))
+                     and abs(candidate[2] - previous[2]) <= self.deadend_wall_tolerance)
+        if same_wall:
+            self._deadend_hits += 1
+        else:
+            self._deadend_candidate = candidate
+            self._deadend_hits = 1
+        if self._deadend_hits < self.deadend_confirm_checks:
+            return False
+        self._deadend_candidate = None
+        self._deadend_hits = 0
+        return True
+
     def check_segment(self,wall,farthest_dot):# for each segments, detect if it is a deadend wall
         '''
         check if it is a deadend
@@ -589,7 +619,17 @@ class ObstacleCourseNode(Node):
         if abs(angle_deg - 90.0) > self.tilt_threshold:
             #self.get_logger().warn(f'infeasible wall!it is not in good angle')
             return None
-        
+
+        # The finite wall must span the robot's forward path, not merely have
+        # an infinite extension in front of it. Require coverage of its width.
+        direction = np.asarray(goal_direction, dtype=float)
+        lateral = np.array([-direction[1], direction[0]])
+        edges = np.asarray(wall.edge) - self.pose[:2]
+        side = edges @ lateral
+        half_width = self.dwa_config.robot_width / 2
+        if side.min() > -half_width or side.max() < half_width:
+            return None
+
         return (A,B,C)
     
     def segment_chipper(self):
