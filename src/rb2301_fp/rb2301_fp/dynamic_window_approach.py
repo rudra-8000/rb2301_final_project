@@ -41,11 +41,11 @@ class Config:
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.5  # [s]
 
-            self.to_goal_cost_gain = 0.10
+            self.to_goal_cost_gain = 0.5
             self.to_goal_heading_cost_gain = 0.1
-            self.to_goal_dist_cost_gain = 5
+            self.to_goal_dist_cost_gain = 0.5
 
-            self.speed_cost_gain = 1.7
+            self.speed_cost_gain = 1.2
             self.obstacle_cost_gain = 0.1
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle

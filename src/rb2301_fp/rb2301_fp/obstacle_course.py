@@ -79,8 +79,26 @@ class Wall():
 
 class Goal():
     def __init__(self,goal_heading=None,goal_node=None):
-        self.goal_heading = goal_heading
-        self.goal_node = goal_node
+        self._goal_heading = goal_heading
+        self._goal_node = goal_node
+
+    @property
+    def goal_heading(self):
+        return self._goal_heading
+    
+    @goal_heading.setter
+    def goal_heading(self, value):
+        self._goal_heading = value
+        self._goal_node = None
+
+    @property
+    def goal_node(self):
+        return self._goal_node
+    
+    @goal_node.setter
+    def goal_node(self, value):
+        self._goal_node = value
+        self._goal_heading = None
 
 class ObstacleCourseNode(Node):
     '''Node to navigate obstacle course, using pose from either gazebo odometer or optitrack and lidar scan data'''
@@ -126,7 +144,9 @@ class ObstacleCourseNode(Node):
         self.timer_callback_counter = 1
         self.farthest_dot = None
         self.wall_list = []
-        self.gate_mse_threshold = 5
+        self.gate_mse_threshold = 0.5
+        self.min_gate_width_threshold=0.1
+        self.max_gate_width_threshold=0.7
         if is_simulation:
             self.max_translate_velocity = 0.5
         else:
@@ -366,13 +386,18 @@ class ObstacleCourseNode(Node):
         self.last_pose = self.pose.copy()
         self.last_timestamp = timestamp
 
-    def set_dwa_param(self,to_goal, speed, ob, pre_time, v_res):  #Update DWA param online
+    def set_dwa_param(self,to_goal_heading, to_goal_node,speed, ob, pre_time, v_res):  #Update DWA param online
         self.dwa_config.speed_cost_gain = speed
         self.dwa_config.obstacle_cost_gain = ob
-        self.dwa_config.to_goal_heading_cost_gain = to_goal
-
+        self.dwa_config.to_goal_heading_cost_gain = to_goal_heading
+        self.dwa_config.to_toal_cost_gain = to_goal_node
         self.dwa_config.predict_time = pre_time
         self.dwa_config.v_resolution = v_res
+
+    def final_stage(self):
+        self.close_threshold /= 2
+        self.set_dwa_param(to_goal_heading=0.3,to_goal_node=1,speed=0.2,ob=0.01,pre_time=1.5,v_res=0.01)
+        self.get_logger().info('dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):
         """Controller loop. Insert path planning and PID control logic here"""
@@ -398,8 +423,6 @@ class ObstacleCourseNode(Node):
             self.move_2D()
             return
 
-        self._goal = Goal()
-
         if self.timer_callback_counter % self.deadend_check_gap == 0:
             self.timer_callback_counter = 1
             self._segmentation = []
@@ -408,7 +431,11 @@ class ObstacleCourseNode(Node):
             self.wall_generator()
             #Detect deadend_wall and change subgoal
             deadend_wall = self.deadend_detector()
-            gate = self.gate_detector()
+
+            if self._goal.goal_node is None:
+                self._goal.goal_node = self.gate_detector("+x")
+                self.final_stage()
+                self._sub_goal[-1]='+x'
             if deadend_wall is not None:
                 distance_to_deadend_wall = self.measure_distance_dot_and_line(self.pose,deadend_wall)
                 #self.get_logger().info(f'wall detected!distance={distance_to_deadend_wall}')
@@ -428,19 +455,13 @@ class ObstacleCourseNode(Node):
                     )
 
                     if (len(self._sub_goal) == 1):
-                        self.close_threshold /= 2
-                        self.set_dwa_param(to_goal=0.3,speed=0.2,ob=0.01,pre_time=1.5,v_res=0.01)
-                        self.get_logger().info('dwa param changed')
+                        self.final_stage()
 
-            if gate is not None:
-                self._goal.goal_node = gate
-                self._goal.goal_heading = None
         else:
             self.timer_callback_counter+=1
 
         if self.is_goal_reached():
             self._goal.goal_node = None
-            self._goal.goal_heading = None
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
         u, predicted_trajectory = dynamic_window_approach.dwa_control(
@@ -480,7 +501,7 @@ class ObstacleCourseNode(Node):
     def wall_generator(self):
         for segment in self._segmentation:
             if len(segment) < self.check_list_threshold:
-                return None
+                continue
 
             points = np.asarray(segment, dtype=float)
             center = points.mean(axis=0)
@@ -491,7 +512,7 @@ class ObstacleCourseNode(Node):
             # vh[0]点云延伸最明显的方向,vh[1]法线方向
             #s[0]点云沿第1个方向的分散程度
             if s[0] < 1e-8:
-                return None
+                continue
 
             A, B = vh[1]  # 单位法向量，A²+B²=1
             C = -np.dot([A, B], center)
@@ -604,8 +625,7 @@ class ObstacleCourseNode(Node):
                 return result
         return None
     
-    def gate_detector(self):
-        distance_list = []
+    def gate_detector(self,self_goal_heading):
         candidate_walls = []
 
         for wall in self.wall_list:
@@ -613,7 +633,7 @@ class ObstacleCourseNode(Node):
             goal_direction = {
                 '+x': (1, 0), '-x': (-1, 0),
                 '+y': (0, 1), '-y': (0, -1),
-            }[self._sub_goal[-1]]
+            }[self_goal_heading]
             normal = np.array([A, B])
             #filter walls that perpendicular to travel or in the other side
             robot_side = normal @ self.pose[:2] + C
@@ -621,30 +641,51 @@ class ObstacleCourseNode(Node):
                 continue
 
             vector_1 = np.array([-B, A])  
-            if self._sub_goal[-1] == '+x' or self._sub_goal[-1]=='-x':
+            if self_goal_heading == '+x' or self_goal_heading=='-x':
                 vector_2 = np.array([1,0])
             else:
                 vector_2 = np.array([0,1])
             angle_deg = self.measure_angle(vector_1,vector_2)
             if abs(angle_deg - 90.0) > self.tilt_threshold:
-                return None
-            distance_list.append(self.measure_distance_dot_and_line(self.pose[:2],(A,B,C)))
+                continue
             candidate_walls.append(wall)
 
         if len(candidate_walls) < 2:
+            self.get_logger().debug(
+                f'Gate detection: segments={len(self._segmentation)}, '
+                f'walls={len(self.wall_list)}, candidates={len(candidate_walls)}, '
+                f'segment_sizes={[len(s) for s in self._segmentation]}'
+            )
             return None
-        indices = sorted(range(len(distance_list)), key=lambda i: distance_list[i])[:2]
-        wall_1 = candidate_walls[indices[0]]
-        wall_2 = candidate_walls[indices[1]]
+        min_mse = float('inf')
+        best_pair = None
+        for i, wall_1 in enumerate(candidate_walls):
+            for wall_2 in candidate_walls[i + 1:]:
+                p1 = np.asarray(wall_1.para)
+                p2 = np.asarray(wall_2.para)
+                # SVD may give opposite normals for the same line.
+                # Keep the squared-error sum to preserve the threshold scale.
+                mse = min(np.sum((p1 - p2)**2), np.sum((p1 + p2)**2))
+                if mse < min_mse:
+                    min_mse = mse
+                    best_pair = (wall_1, wall_2)
 
-        dA2 = (wall_1.para[0]-wall_2.para[0])**2
-        dB2 = (wall_1.para[1]-wall_2.para[1])**2
-        dC2 = (wall_1.para[2]-wall_2.para[2])**2
-        mse = dA2+dB2+dC2
-        if mse < self.gate_mse_threshold:
+        if best_pair is not None and min_mse < self.gate_mse_threshold:
+            wall_1, wall_2 = best_pair
+            gate_width = abs(np.asarray(wall_1.edge[1][1])-np.asarray(wall_2.edge[0][1]))
+            if gate_width < self.min_gate_width_threshold:
+                
+                return None
+            if gate_width > self.max_gate_width_threshold:
+                return None
             gate_center = (np.asarray(wall_1.edge[1])+np.asarray(wall_2.edge[0]))/2
             self.get_logger().error(f'detected a gate!{gate_center}')
+            gate_center[0] += 0.3
             return gate_center
+        self.get_logger().debug(
+            f'Gate detection: candidates={len(candidate_walls)}, '
+            f'min_mse={min_mse:.6f}, threshold={self.gate_mse_threshold}'
+        )
         return None
 
 def main(args=None):
