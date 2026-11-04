@@ -20,6 +20,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -39,7 +40,8 @@ class VisualizationBridgeTests(unittest.TestCase):
         rclpy.shutdown()
 
     def setUp(self):
-        self.source = ObstacleCourseNode(is_simulation=True, calibrate=True)
+        self.source = ObstacleCourseNode(is_simulation=True, calibrate=True, parameter_overrides=[
+            Parameter('single_point_goal', value=False)])
         self.source.timer.cancel()
         self.source._rviz_timer.cancel()
         self.relay = VisualizationRelay(self.source._rviz_server.port, poll_rate=20.0)

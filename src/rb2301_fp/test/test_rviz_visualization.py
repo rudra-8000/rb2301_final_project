@@ -11,6 +11,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
@@ -32,7 +33,8 @@ class RvizVisualizationTests(unittest.TestCase):
         rclpy.shutdown()
 
     def setUp(self):
-        self.node = ObstacleCourseNode(is_simulation=True, calibrate=True)
+        self.node = ObstacleCourseNode(is_simulation=True, calibrate=True, parameter_overrides=[
+            Parameter('single_point_goal', value=False)])
         self.node.timer.cancel()
         self.node._rviz_timer.cancel()
         self.reader = Node('fp_visualization_test_reader')

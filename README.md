@@ -47,7 +47,25 @@ To disable both static and moving obstacles while keeping the maze walls and gat
 
 The launch argument defaults to `false`, so `./gz_fp.sh` still generates obstacles.
 
-The unchanged starter code just drives forward at 0.1 m/s.
+The controller currently defaults to a single fixed point goal. At the first
+valid pose, it places the goal 5 m away, 35 degrees left of the initial course
+direction (`+x` in simulation, `-y` on the real robot). This is relative to the
+initial position and the configured course direction, not the robot's yaw.
+The goal remains fixed as the robot moves. DWA uses the point-goal weights in
+`dynamic_window_approach.Config`; deadend, gate and stage switching are bypassed.
+Within 0.3 m of the goal, the controller stops and stays stopped.
+
+The distance and angle are startup parameters (use decimal values):
+
+```bash
+bash fp.sh --ros-args -p point_goal_distance:=5.0 -p point_goal_left_angle_deg:=35.0
+```
+
+To restore the previous sub-goal/stage logic:
+
+```bash
+bash fp.sh --ros-args -p single_point_goal:=false
+```
 
 ## RViz visualization (including a node started over SSH)
 

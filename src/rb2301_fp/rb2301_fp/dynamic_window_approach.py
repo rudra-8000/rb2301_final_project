@@ -12,7 +12,7 @@ from enum import Enum
 import matplotlib.pyplot as plt
 import numpy as np
 
-show_animation = True
+show_animation = False
 is_simulation = True
 
 
@@ -53,7 +53,7 @@ class Config:
             self.obstacle_cost_gain = 0.1
             self.obstacle_turn_cost_gain = 1.0
 
-            self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
+            self.robot_stuck_flag_cons = 0.01  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
             # if robot_type == RobotType.circle
@@ -61,8 +61,8 @@ class Config:
             self.robot_radius = 1.0  # [m] for collision check
 
             # if robot_type == RobotType.rectangle
-            self.robot_width = 0.2  # [m] for collision check
-            self.robot_length = 0.2  # [m] for collision check
+            self.robot_width = 0.23  # [m] for collision check
+            self.robot_length = 0.23  # [m] for collision check
 
             # obstacles [x(m) y(m), ....]
         

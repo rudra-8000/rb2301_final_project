@@ -6,6 +6,7 @@ from unittest import mock
 
 import numpy as np
 import rclpy
+from rclpy.parameter import Parameter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rb2301_fp.obstacle_course import ObstacleCourseNode, Wall
@@ -21,7 +22,8 @@ class GoalSwitchingTests(unittest.TestCase):
         rclpy.shutdown()
 
     def setUp(self):
-        self.node = ObstacleCourseNode(is_simulation=True)
+        self.node = ObstacleCourseNode(is_simulation=True, parameter_overrides=[
+            Parameter('single_point_goal', value=False)])
         self.node.timer.cancel()
         self.node._rviz_timer.cancel()
         self.addCleanup(self.node.destroy_node)
