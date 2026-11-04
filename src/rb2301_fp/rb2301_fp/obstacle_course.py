@@ -479,7 +479,22 @@ class ObstacleCourseNode(Node):
         self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
     def timer_callback(self):
-        """Controller loop. Insert path planning and PID control logic here"""
+        """Log wall-clock performance for every controller invocation."""
+        callback_started = time.perf_counter()
+        timings = {'DWA': None, 'deadend_detect': None}
+        try:
+            self._run_timer_callback(timings)
+        finally:
+            callback_ms = (time.perf_counter() - callback_started) * 1000.0
+            phases = ', '.join(
+                f'{name}={elapsed * 1000.0:.3f} ms' if elapsed is not None
+                else f'{name}=skipped'
+                for name, elapsed in timings.items())
+            self.get_logger().info(
+                f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
+
+    def _run_timer_callback(self, timings):
+        """Controller loop; deadend timing includes segmentation and wall fitting."""
         if self.pose is None:
             print("No pose detected")
             return # Does not run if no pose received from Odom or Optitrack
@@ -518,12 +533,16 @@ class ObstacleCourseNode(Node):
             self.start_stage()
             if self.timer_callback_counter % self.deadend_check_gap == 0:
                 self.timer_callback_counter = 1
-                self._segmentation = []
-                self.segment_chipper()#genrate _segmentation
-                self.wall_list=[]
-                self.wall_generator()
-                #Detect deadend_wall and change subgoal
-                deadend_wall = self.deadend_detector()
+                deadend_started = time.perf_counter()
+                try:
+                    self._segmentation = []
+                    self.segment_chipper()#genrate _segmentation
+                    self.wall_list=[]
+                    self.wall_generator()
+                    #Detect deadend_wall and change subgoal
+                    deadend_wall = self.deadend_detector()
+                finally:
+                    timings['deadend_detect'] = time.perf_counter() - deadend_started
 
                 # Only the final sub-goal searches for the exit gate.
                 gate = self.gate_detector("+x")
@@ -560,14 +579,18 @@ class ObstacleCourseNode(Node):
 
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
-        u, predicted_trajectory = dynamic_window_approach.dwa_control(
-                                                                    self,
-                                                                    x=self._state,
-                                                                    goal=self._goal.goal_node,
-                                                                    goal_heading=None if self.single_point_goal else self._goal.goal_heading,
-                                                                    ob=self._ob,
-                                                                    config=self.dwa_config,
-                                                                    )
+        dwa_started = time.perf_counter()
+        try:
+            u, predicted_trajectory = dynamic_window_approach.dwa_control(
+                self,
+                x=self._state,
+                goal=self._goal.goal_node,
+                goal_heading=None if self.single_point_goal else self._goal.goal_heading,
+                ob=self._ob,
+                config=self.dwa_config,
+            )
+        finally:
+            timings['DWA'] = time.perf_counter() - dwa_started
         self._rviz_predicted_trajectory = predicted_trajectory
         self.move_2D(u[0],0.0,u[1])
         self._state[3] , self._state[4] = u[0], self.actual_velocity[1]    #TODO change this to real speed
