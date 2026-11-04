@@ -68,7 +68,7 @@ class Config:
         
         else:   #IRL param
                         # robot parameter
-            self.max_speed = 0.3  # [m/s]
+            self.max_speed = 0.25         # [m/s]
             self.min_speed = -0.1  # [m/s]
             self.max_yaw_rate = 90.0 * math.pi / 180.0  # [rad/s]
             self.max_accel = 0.2  # [m/ss]
@@ -84,10 +84,10 @@ class Config:
             self.to_goal_heading_cost_gain = 0.1        #in angle
             self.to_goal_heading_dist_cost_gain = 0.5   #in distance
 
-            self.speed_cost_gain = 0.6
+            self.speed_cost_gain = 0.3
             self.speed_back_gain = 0.2
 
-            self.obstacle_cost_gain = 0.02
+            self.obstacle_cost_gain = 0.08
             self.obstacle_turn_cost_gain = 0.5
 
             self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
@@ -99,7 +99,7 @@ class Config:
 
             # if robot_type == RobotType.rectangle
             self.robot_width = 0.2  # [m] for collision check
-            self.robot_length = 0.23  # [m] for collision check
+            self.robot_length = 0.2  # [m] for collision check
             # obstacles [x(m) y(m), ....]
 
 

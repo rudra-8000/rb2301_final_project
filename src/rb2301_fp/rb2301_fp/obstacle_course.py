@@ -122,8 +122,8 @@ class ObstacleCourseNode(Node):
         self._goal = Goal()
 
         if self.is_simulation == False:
-            self._sub_goal = ['+y','+x','+y']# sub_goal_heading, in reverse order
-            self._sub_goal_2 = ['+y']
+            self._sub_goal = ['-y','-x','-y']# sub_goal_heading, in reverse order
+            self._sub_goal_2 = ['-y']
         else:
             self._sub_goal = ['+x','-y','+x']
             self._sub_goal_2 = ['+x']
@@ -136,17 +136,17 @@ class ObstacleCourseNode(Node):
         self._ob = np.array([]) #obstacle array
         self._is_dwa_initialized = False
 
-        self.density_threshold = 0.05#the obstacle dot density threshhold for detecting deadend
+        self.density_threshold = 0.25#the obstacle dot density threshhold for detecting deadend
         self.check_list_threshold = 15 # how many dot needed to start determine if it is a wall
         self.outlier_dot_threshold = 0.2 # The distance from the point with the outlier dot to the fitted line
-        self.outlier_offset_threshold = 3
-        self.tilt_threshold = 5 # in angular
+        self.outlier_offset_threshold = 1
+        self.tilt_threshold = 60 # in angular
         self.close_threshold = 1# how close to a deadend triggers transformation to the next _sub_goal
         self.deadend_confirm_checks = 3 # consecutive checks of the same wall
         self.deadend_wall_tolerance = 0.15 # fitted wall offset tolerance, metres
         self._deadend_candidate = None
         self._deadend_hits = 0
-        self.curve_threshold = 25# beyond the angle will not be seen as a single wall
+        self.curve_threshold = 85# beyond the angle will not be seen as a single wall
         self.sub_goal_cd =3.0# sub_goal switch cooldown,in seconds
         self.timestamp = 0.0#
         self._segmentation = []
@@ -155,8 +155,8 @@ class ObstacleCourseNode(Node):
         self.farthest_dot = None
         self.wall_list = []
         self.gate_mse_threshold = 0.1
-        self.min_gate_width_threshold=0.3
-        self.max_gate_width_threshold=0.5
+        self.min_gate_width_threshold=0.6
+        self.max_gate_width_threshold=0.8
         self.stage = 'start'#start gate final
         if is_simulation:
             self.max_translate_velocity = 0.5
@@ -191,18 +191,29 @@ class ObstacleCourseNode(Node):
 #==============================================================================================================
     # RViz visualization
     def init_rviz_visualization(self):
-        """Publish ROS messages only; safe to run over SSH without DISPLAY."""
+        """Choose direct ROS visualization or JSON snapshots for SSH viewing."""
         self._rviz_predicted_trajectory = None
+        self._rviz_server = None
         enabled = self.declare_parameter('visualization_enabled', True).value
         self._rviz_frame = self.declare_parameter(
             'visualization_frame', 'fp_visualization').value
+        transport = self.declare_parameter('visualization_transport', 'ros').value
         if not enabled:
             return
-        # Keep the latest complete scene for RViz instances that join later.
-        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                         durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self._rviz_publisher = self.create_publisher(
-            MarkerArray, '~/visualization', qos)
+        if transport == 'ssh':
+            from rb2301_fp.visualization_bridge import VisualizationSnapshotServer
+            port = self.declare_parameter('visualization_port', 8765).value
+            self._rviz_server = VisualizationSnapshotServer(port)
+            self.get_logger().info(
+                'SSH visualization: http://127.0.0.1:{}/snapshot'.format(self._rviz_server.port))
+        elif transport == 'ros':
+            # Keep the latest complete scene for RViz instances that join later.
+            qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
+            self._rviz_publisher = self.create_publisher(
+                MarkerArray, '~/visualization', qos)
+        else:
+            raise ValueError('visualization_transport must be ros or ssh')
         self._rviz_timer = self.create_timer(0.1, self.publish_rviz_visualization)
 
     def _rviz_marker(self, name, marker_type, points, color, size, stamp, z=0.03):
@@ -297,7 +308,18 @@ class ObstacleCourseNode(Node):
                                      (1.0, 1.0, 1.0), 0.065, stamp, z=0.05)
         segments.colors = colors
         scene.markers.append(segments)
-        self._rviz_publisher.publish(scene)
+        if self._rviz_server is not None:
+            try:
+                self._rviz_server.publish(scene)
+            except (ValueError, TypeError) as error:
+                self.get_logger().warning('Visualization frame skipped: {}'.format(error))
+        else:
+            self._rviz_publisher.publish(scene)
+
+    def destroy_node(self):
+        if self._rviz_server is not None:
+            self._rviz_server.close()
+        return super().destroy_node()
 
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
@@ -545,7 +567,7 @@ class ObstacleCourseNode(Node):
             # 第一主方向沿着墙，第二主方向垂直于墙
             # vh[0]点云延伸最明显的方向,vh[1]法线方向
             #s[0]点云沿第1个方向的分散程度
-            if s[0] < 1e-8:
+            if s[0] < 1e-12:
                 continue
 
             A, B = vh[1]  # 单位法向量，A²+B²=1
@@ -592,7 +614,7 @@ class ObstacleCourseNode(Node):
         y_distance = r = np.hypot(farthest_dot[0]-center[0], farthest_dot[1]-center[1])
 
         if x_distance > self.outlier_dot_threshold and y_distance < self.outlier_offset_threshold:
-            #self.get_logger().warn(f'infeasible wall! its not the farthest one:distance:{x_distance}')
+            self.get_logger().warn(f'infeasible wall! its not the farthest one:distance:{x_distance}')
             return None
 
         goal_direction = {
@@ -603,7 +625,7 @@ class ObstacleCourseNode(Node):
         # Reject a wall behind the robot along the current goal direction.
         robot_side = normal @ self.pose[:2] + C
         if robot_side * np.dot(normal, goal_direction) > 0:
-            #self.get_logger().warn(f'infeasible wall!it is behind the robot')
+            self.get_logger().warn(f'infeasible wall!it is behind the robot')
             return None
 
         vector_1 = np.array([-B, A])  # 沿墙方向，与直线法向量 (A, B) 垂直
@@ -614,8 +636,9 @@ class ObstacleCourseNode(Node):
 
         angle_deg = self.measure_angle(vector_1,vector_2)
         # A blocking wall is perpendicular to travel; SVD signs are arbitrary.
-        if abs(angle_deg - 90.0) > self.tilt_threshold:
-            #self.get_logger().warn(f'infeasible wall!it is not in good angle')
+        angle = abs(angle_deg-90.0)
+        if angle > self.tilt_threshold:
+            self.get_logger().warn(f'infeasible wall!it is not in good angle{angle}')
             return None
 
         # The finite wall must span the robot's forward path, not merely have
@@ -625,8 +648,8 @@ class ObstacleCourseNode(Node):
         edges = np.asarray(wall.edge) - self.pose[:2]
         side = edges @ lateral
         half_width = self.dwa_config.robot_width / 2
-        if side.min() > -half_width or side.max() < half_width:
-            return None
+        #if side.min() > -half_width or side.max() < half_width:
+        #    return None
 
         return (A,B,C)
     
@@ -669,7 +692,7 @@ class ObstacleCourseNode(Node):
                 if aver_hist_vector is not None:
                     angle = self.measure_angle(new_vector,aver_hist_vector)
                     if angle < self.curve_threshold:
-                        aver_hist_vector= (aver_hist_vector+new_vector)/2
+                        aver_hist_vector= aver_hist_vector/5+new_vector*4/5
                         fracture = False
                     else:
                         fracture = True

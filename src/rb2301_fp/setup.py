@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'obstacle_course = rb2301_fp.obstacle_course:main',
+            'visualization_relay = rb2301_fp.visualization_bridge:main',
         ],
     },
 )

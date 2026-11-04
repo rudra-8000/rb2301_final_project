@@ -51,11 +51,103 @@ The unchanged starter code just drives forward at 0.1 m/s.
 
 ## RViz visualization (including a node started over SSH)
 
-The node publishes `/obstaclecourse/visualization` (`visualization_msgs/msg/MarkerArray`)
-at 10 Hz. Visualization is grouped in three adjacent methods in `ObstacleCourseNode`:
-`init_rviz_visualization()`, `_rviz_marker()` and `publish_rviz_visualization()`.
-The DWA loop only saves its latest prediction for the visualization timer.
-No Matplotlib window or `DISPLAY` is required by the controller.
+Visualization is built at 10 Hz in the adjacent `init_rviz_visualization()`,
+`_rviz_marker()` and `publish_rviz_visualization()` methods. The controller needs
+neither a Matplotlib window nor `DISPLAY`. It supports two transports:
+
+- `visualization_transport:=ros` (default): publish `/obstaclecourse/visualization`
+  directly as `visualization_msgs/msg/MarkerArray`. Use this for local simulation
+  or compatible ROS installations.
+- `visualization_transport:=ssh`: cache plain JSON snapshots at
+  `http://127.0.0.1:8765/snapshot`. The local `visualization_relay` reads them through
+  an SSH tunnel and publishes the same MarkerArray topic locally. No ROS CDR or
+  DDS discovery traffic crosses the tunnel. This is the mode for a Foxy robot
+  and a Jazzy laptop.
+
+Do not join the Foxy robot's domain with native Jazzy RViz, `ros2 topic echo`, or
+a ROS CLI daemon. Cross-distribution graph messages can crash older middleware;
+changing visualization message size or QoS does not isolate discovery.
+
+### Foxy robot + Jazzy laptop: SSH mode
+
+Sync the updated `src/rb2301_fp` package to the robot, including
+`visualization_bridge.py` and the updated `setup.py`. The example robot workspace
+below matches robot 14; substitute your robot's actual path/address.
+
+On the robot's SSH terminal, keep its existing `ROS_DOMAIN_ID` and driver setup:
+
+```bash
+cd /home/bingda/Downloads/rb2301_fp_25
+source /opt/ros/foxy/setup.bash
+colcon build --symlink-install --packages-select rb2301_fp
+source install/setup.bash
+bash fp.sh --ros-args -p visualization_transport:=ssh
+```
+
+On the laptop, build the updated package once, then use the SSH launcher:
+
+```bash
+cd /home/fro4ten/Documents/rb2301_final_project
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select rb2301_fp
+bash rviz_fp.sh --ssh bingda@192.168.1.214
+```
+
+The launcher authenticates SSH normally, creates a localhost-only `ssh -L`
+tunnel, and starts the relay and RViz with `ROS_DOMAIN_ID=166`,
+`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` and `ROS_LOCALHOST_ONLY=1`. It clears
+`ROS_STATIC_PEERS`, `ROS_DISCOVERY_SERVER` and `ROS_SUPER_CLIENT` for those child
+processes. Exiting RViz or pressing Ctrl+C closes the relay and this launcher's
+own tunnel. Existing terminal settings and other SSH sessions are unaffected.
+Before switching to this mode, close old Jazzy RViz/echo processes connected to
+the robot's domain and stop any CLI daemon started in that environment with
+`ros2 daemon stop`; the launcher cannot isolate already running processes.
+
+To inspect the **local relay** topic, use an isolated terminal:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=166
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+export ROS_LOCALHOST_ONLY=1
+unset ROS_STATIC_PEERS ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT
+ros2 topic echo /obstaclecourse/visualization \
+  visualization_msgs/msg/MarkerArray --once --timeout 10 --no-arr \
+  --qos-reliability reliable --qos-durability transient_local
+```
+
+`curl http://127.0.0.1:8765/snapshot` on the robot checks the snapshot server
+without creating any ROS participant. HTTP 503 means the node is waiting for
+its first pose/frame. The server binds only to loopback and exposes telemetry
+only. Slow or disconnected viewers never block the controller on network I/O.
+The relay downloads in a separate worker with a 3-second socket timeout and at
+most 5 requests per second. Its ROS timer refreshes the most recent valid scene
+at 10 Hz, so a slow SSH request cannot block RViz updates. Short gaps retain the
+last frame; after 3 seconds without a **new snapshot sequence**, the relay sends
+DELETEALL and reports stale data. Repeated HTTP responses carrying the same
+sequence do not extend that freshness deadline.
+
+The updated robot server supports HTTP keep-alive and cached gzip payloads,
+reducing repeated SSH channel setup and bandwidth. The new relay also works
+with the original HTTP/1.0, uncompressed robot server: restarting only the local
+launcher already enables the longer timeout, worker and short-gap buffering.
+Sync the new `visualization_bridge.py` and restart the robot node to enable
+keep-alive/gzip as well.
+
+For a busy local port, launch with `FP_RVIZ_PORT=8766 bash rviz_fp.sh --ssh ...`.
+The robot port can be set with `-p visualization_port:=8766`; set
+`FP_RVIZ_REMOTE_PORT=8766` on the laptop launcher to match it. An optional
+`FP_RVIZ_DOMAIN_ID` changes the launcher's private local domain (default 166).
+The launcher also accepts `FP_RVIZ_TIMEOUT` (seconds, default 3),
+`FP_RVIZ_STALE_AFTER` (seconds, default 3), and `FP_RVIZ_POLL_RATE` (Hz, default 5).
+For example, to tolerate a slower connection while retaining a frame for up to
+5 seconds after its last distinct update:
+
+```bash
+FP_RVIZ_TIMEOUT=5 FP_RVIZ_STALE_AFTER=5 bash rviz_fp.sh --ssh bingda@192.168.1.214
+```
+
+### Local simulation: direct ROS mode
 
 After adding the RViz config, rebuild once and open RViz on the machine with a display:
 
@@ -76,7 +168,7 @@ rviz2 -d "$(ros2 pkg prefix rb2301_fp)/share/rb2301_fp/rviz/obstacle_course.rviz
 Colors follow `dynamic_window_approach.animate()`: green predicted trajectory,
 red robot position/heading, blue reference goal, dark LiDAR points/footprint,
 and colored segmentation points. The cyan arrow is the active `_sub_goal`
-heading. The blue `_goal` cross is only a reference while DWA uses `goal_heading`.
+heading. The blue cross shows `_goal.goal_node` when a positional goal is active.
 Both rectangular and circular footprints use the active DWA config.
 
 The bundled view uses `Fixed Frame: fp_visualization` and the RViz `Identity`
@@ -88,29 +180,10 @@ Do not add topics from other frames to this Identity view without transforming
 them first. If the node is renamed or namespaced, update the MarkerArray topic
 in RViz to match its private `~/visualization` topic.
 
-For SSH use, start `./fp.sh` on the remote machine as usual and run
-`bash rviz_fp.sh` in a **local terminal**. Use ROS 2 Jazzy on both machines.
-In both launch terminals, allow subnet discovery before starting the processes:
-
-```bash
-unset ROS_LOCALHOST_ONLY
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-```
-
-Read the remote machine's `echo "$ROS_DOMAIN_ID"` and set the same value locally
-(`0` if unset). Keep a real robot's existing domain ID. Both machines must have
-working DDS network connectivity; an ordinary SSH connection does not itself
-forward ROS 2 traffic. If multicast discovery is unavailable, set the peer IP
-in each launch terminal before restarting the node/RViz:
-
-```bash
-export ROS_STATIC_PEERS=192.168.1.205  # example: the OTHER machine's reachable IP
-```
-
-These settings are described in the official [ROS 2 discovery documentation](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Advanced/Improved-Dynamic-Discovery.rst).
-If only SSH is reachable, `ssh -Y <remote>` can instead run `bash rviz_fp.sh`
-on the remote machine with X11 forwarding, provided a local X server and remote
-OpenGL support are available. The publishing node itself still needs no display.
+Direct ROS viewing between separate machines is for compatible distributions:
+use the same domain and working DDS connectivity. For Foxy/Jazzy use the SSH
+mode above. See the official [ROS 2 discovery documentation](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Tutorials/Advanced/Improved-Dynamic-Discovery.rst)
+and [OpenSSH forwarding documentation](https://man.openbsd.org/ssh.1).
 
 The publisher and bundled RViz display use reliable, transient-local QoS with
 depth 1, so RViz can join after the node starts. Empty layers are explicitly
