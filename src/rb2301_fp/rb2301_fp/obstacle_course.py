@@ -147,6 +147,8 @@ class ObstacleCourseNode(Node):
         self._ob = np.array([]) #obstacle array
         self._is_dwa_initialized = False
 
+
+        #======Deadend checker and goal switch params======#
         self.density_threshold = 0.25#the obstacle dot density threshhold for detecting deadend
         self.check_list_threshold = 15 # how many dot needed to start determine if it is a wall
         self.outlier_dot_threshold = 0.2 # The distance from the point with the outlier dot to the fitted line
@@ -169,6 +171,7 @@ class ObstacleCourseNode(Node):
         self.min_gate_width_threshold=0.6
         self.max_gate_width_threshold=0.8
         self.stage = 'point_goal' if self.single_point_goal else 'start'
+        
         if is_simulation:
             self.max_translate_velocity = 0.5
         else:
@@ -332,6 +335,8 @@ class ObstacleCourseNode(Node):
             self._rviz_server.close()
         return super().destroy_node()
 
+
+#========Utilities=======#
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
         if len(msg.ranges) <= 720:#was 360,choose whether want downsampling
@@ -478,8 +483,7 @@ class ObstacleCourseNode(Node):
         self.set_dwa_param(to_goal_node=0.5,speed=1,ob=0.2,pre_time=1.5,v_res=0.01)
         self.get_logger().info('enter gate stage!dwa param changed')
 #===============================timer_callback=====================================================
-    def timer_callback(self):
-        """Log wall-clock performance for every controller invocation."""
+    def timer_callback(self):   #timer callback framework for performance evaluation
         callback_started = time.perf_counter()
         timings = {'DWA': None, 'deadend_detect': None}
         try:
@@ -493,7 +497,7 @@ class ObstacleCourseNode(Node):
             self.get_logger().info(
                 f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
 
-    def _run_timer_callback(self, timings):
+    def _run_timer_callback(self, timings): #real timer_callback
         """Controller loop; deadend timing includes segmentation and wall fitting."""
         if self.pose is None:
             print("No pose detected")
