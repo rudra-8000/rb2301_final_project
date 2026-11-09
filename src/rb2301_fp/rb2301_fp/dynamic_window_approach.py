@@ -36,8 +36,13 @@ class Config:
             self.max_yaw_rate = 1.0
             self.max_accel = 0.2  # [m/ss]
             self.max_delta_yaw_rate = 90.0 * math.pi / 180.0  # [rad/ss]
+            
             self.v_resolution = 0.02  # [m/s]
             self.yaw_rate_resolution = 2.0 * math.pi / 180.0  # [rad/s]
+            
+            self.v_sample_size = 5
+            self.yaw_sample_size = 20
+            
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.5  # [s]
 
@@ -73,8 +78,13 @@ class Config:
             self.max_yaw_rate = 0.6 #Same as the move2d output limit #90.0 * math.pi / 180.0  # [rad/s]
             self.max_accel = 0.2  # [m/ss]
             self.max_delta_yaw_rate = 90.0 * math.pi / 180.0  # [rad/ss]
-            self.v_resolution = 0.02  # [m/s]
-            self.yaw_rate_resolution = 1.0 * math.pi / 180.0  # [rad/s]
+            
+            self.v_resolution = 0.02  # [m/s] NO LONGER USED
+            self.yaw_rate_resolution = 1.0 * math.pi / 180.0  # [rad/s] NO LONGER USED
+
+            self.v_sample_size = 4
+            self.yaw_sample_size = 20
+
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.0  # [s]
 
@@ -178,6 +188,20 @@ def predict_trajectory(x_init, v, y, config):
 
     return trajectory
 
+def sample_trajectory_from_dw(dw,config):
+    _vy_candidates= np.empty(2, dtype=object)
+
+    def sample(lo,hi,sample_size):
+        crosses_zero = lo < 0.0 < hi
+        samples = np.linspace(lo, hi, sample_size)
+        samples = np.append(samples,0.0) if crosses_zero else samples
+        return samples
+
+    _vy_candidates[0], _vy_candidates[1] = (
+        sample(dw[0], dw[1], config.v_sample_size),
+        sample(dw[2], dw[3], config.yaw_sample_size),
+    )
+    return _vy_candidates
 
 def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
     """
@@ -193,8 +217,12 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
     # evaluate all trajectory with sampled input in dynamic window
     best_cost_list = []
     no_choice = True
-    for v in np.arange(dw[0], dw[1], config.v_resolution):
-        for y in np.arange(dw[2], dw[3], config.yaw_rate_resolution):
+    
+
+    _vy_candidates = sample_trajectory_from_dw(dw,config)
+
+    for v in _vy_candidates[0]:
+        for y in _vy_candidates[1]:
 
             trajectory = predict_trajectory(x_init, v, y, config)
             # calc cost
