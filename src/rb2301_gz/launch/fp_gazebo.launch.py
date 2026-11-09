@@ -17,7 +17,7 @@ from obstacle_modifier import modify_sdf_file
 def prepare_world(context):
     disable_obstacles = IfCondition(
         LaunchConfiguration('disable_obstacles')).evaluate(context)
-    modify_sdf_file(disable_obstacles=disable_obstacles) # command this to disable random  
+    #modify_sdf_file(disable_obstacles=disable_obstacles) # command this to disable random  
     return []
 
 

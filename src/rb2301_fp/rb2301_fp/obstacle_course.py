@@ -120,11 +120,16 @@ class ObstacleCourseNode(Node):
         self._state = np.array([0.0, 0.0, 0.0 , 0.0, 0.0])  #state representation:
         #                      [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
         self._goal = Goal()
+
+
         # Temporary single-goal mode; disable the parameter to restore course stages.
         self.single_point_goal = self.declare_parameter('single_point_goal', True).value
-        self.point_goal_distance = self.declare_parameter('point_goal_distance', 5.0).value
+        self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
         self.point_goal_left_angle_deg = self.declare_parameter(
-            'point_goal_left_angle_deg', +15.0).value
+            'point_goal_left_angle_deg', -35.0).value
+
+
+        
         if (not math.isfinite(self.point_goal_distance) or self.point_goal_distance <= 0
                 or not math.isfinite(self.point_goal_left_angle_deg)):
             raise ValueError('point_goal_distance must be positive and goal settings must be finite')

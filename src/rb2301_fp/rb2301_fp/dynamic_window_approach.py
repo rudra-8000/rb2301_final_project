@@ -52,13 +52,13 @@ class Config:
             self.to_goal_heading_cost_gain = 0.1        #in angle
             self.to_goal_heading_dist_cost_gain = 0.5   #in distance
 
-            self.speed_cost_gain = 1.2
+            self.speed_cost_gain = 1.3 #was 1.2
             self.speed_back_gain = 0.7
 
             self.obstacle_cost_gain = 0.1
-            self.obstacle_turn_cost_gain = 1.0
+            self.obstacle_turn_cost_gain = 1.2
 
-            self.robot_stuck_flag_cons = 0.01  #was 0.001 constant to prevent robot stucked
+            self.robot_stuck_flag_cons = 0.012  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
             # if robot_type == RobotType.circle
@@ -66,8 +66,8 @@ class Config:
             self.robot_radius = 1.0  # [m] for collision check
 
             # if robot_type == RobotType.rectangle
-            self.robot_width = 0.23  # [m] for collision check
-            self.robot_length = 0.23  # [m] for collision check
+            self.robot_width = 0.24  # [m] for collision check
+            self.robot_length = 0.24  # [m] for collision check
 
             # obstacles [x(m) y(m), ....]
         
@@ -236,10 +236,8 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
                 to_goal_cost += config.to_goal_node_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
 
             diff = config.max_speed - max(0,trajectory[-1, 3])
-            if diff > 0:
-                speed_cost = config.speed_cost_gain * diff
-            else:
-                speed_cost = config.speed_back_cost_gain * diff
+            speed_cost = config.speed_cost_gain * diff
+
             ob_cost = config.obstacle_cost_gain * calc_obstacle_cost(trajectory, ob, config)
             ob_cost += config.obstacle_turn_cost_gain * calc_obstacle_turn_cost(trajectory,ob,config)
 
@@ -252,6 +250,7 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
                 best_trajectory = trajectory
                 best_cost_list = cost_list
                 no_choice = False
+    
     if abs(best_u[0]) < config.robot_stuck_flag_cons \
             and abs(x[3]) < config.robot_stuck_flag_cons:
     #if no_choice:
