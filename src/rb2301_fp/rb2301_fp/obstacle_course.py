@@ -122,16 +122,16 @@ class ObstacleCourseNode(Node):
         self._goal = Goal()
         # Temporary single-goal mode; disable the parameter to restore course stages.
         self.single_point_goal = self.declare_parameter('single_point_goal', True).value
-        self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
+        self.point_goal_distance = self.declare_parameter('point_goal_distance', 5.0).value
         self.point_goal_left_angle_deg = self.declare_parameter(
-            'point_goal_left_angle_deg', -35.0).value
+            'point_goal_left_angle_deg', +15.0).value
         if (not math.isfinite(self.point_goal_distance) or self.point_goal_distance <= 0
                 or not math.isfinite(self.point_goal_left_angle_deg)):
             raise ValueError('point_goal_distance must be positive and goal settings must be finite')
         self._point_goal_reached = False
 
         if self.is_simulation == False:
-            self._sub_goal = ['-y','-x','-y']# sub_goal_heading, in reverse order
+            self._sub_goal = ['-y','-x','+y']# sub_goal_heading, in reverse order
             self._sub_goal_2 = ['-y']
         else:
             self._sub_goal = ['+x','-y','+x']
@@ -494,8 +494,8 @@ class ObstacleCourseNode(Node):
                 f'{name}={elapsed * 1000.0:.3f} ms' if elapsed is not None
                 else f'{name}=skipped'
                 for name, elapsed in timings.items())
-            self.get_logger().info(
-                f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
+            # self.get_logger().info(
+            #     f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
 
     def _run_timer_callback(self, timings): #real timer_callback
         """Controller loop; deadend timing includes segmentation and wall fitting."""
@@ -510,10 +510,10 @@ class ObstacleCourseNode(Node):
                 #self.get_logger().info(f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)  ->  maze ({self.pose[0]:+.3f}, {self.pose[1]:+.3f}, {self.pose[2]:+7.1f} deg)")
             return # Calibration mode: look, don't drive
 
-        #self.get_logger().info(f"Pose: {self.pose}")
+        self.get_logger().info(f"Pose: {self.pose}")
 
         self._initialize_point_goal()
-        self._state = self.update_state()
+        
         if self.single_point_goal:
             if self._goal.goal_node is None:
                 self.move_2D()
@@ -581,6 +581,9 @@ class ObstacleCourseNode(Node):
             self._goal.goal_heading = self._sub_goal_2[-1]
             self.final_stage()
 
+
+        self._state = self.update_state()   #Update the state
+
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
         dwa_started = time.perf_counter()
@@ -597,7 +600,7 @@ class ObstacleCourseNode(Node):
             timings['DWA'] = time.perf_counter() - dwa_started
         self._rviz_predicted_trajectory = predicted_trajectory
         self.move_2D(u[0],0.0,u[1])
-        self._state[3] , self._state[4] = u[0], self.actual_velocity[1]    #TODO change this to real speed
+        self._state[3] , self._state[4] = self.actual_velocity[0], self.actual_velocity[1]    #TODO change this to real speed
         #dynamic_window_approach.animate(predicted_trajectory,self._state,self._goal,self._ob, self._segmentation)
 
 

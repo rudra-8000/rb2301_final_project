@@ -270,3 +270,13 @@ What is different from the simulation:
 - **Robot number.** The node reads the Optitrack topic of its own robot from `ROS_DOMAIN_ID` (already set on each robot) and prints it at start-up (`/vrpn_mocap/bingda_0NN/pose`).
 - **Rigid bodies** are created in Motive with the robot facing +y of the CA2 maze. If you reset one, face the robot +y first.
 - **Checking the pose.** Run the node with `--calibrate`, for example `./fp.sh --calibrate` on the robot. It prints the raw Optitrack pose and the maze-frame pose twice a second and never sends a drive command, so you can move the robot by hand and read off coordinates (for example the position of the gate). Start `rplidar` first, otherwise the node waits for the LiDAR.
+
+
+
+
+
+Rviz connection: 
+/home/fro4ten/Documents/rb2301_final_project/rviz_fp.sh \
+  --ssh bingda@192.168.1.20x
+
+bash fp.sh --ros-args -p visualization_transport:=ssh

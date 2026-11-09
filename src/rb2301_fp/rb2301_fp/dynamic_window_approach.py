@@ -70,7 +70,7 @@ class Config:
                         # robot parameter
             self.max_speed = 0.25         # [m/s]
             self.min_speed = -0.1  # [m/s]
-            self.max_yaw_rate = 90.0 * math.pi / 180.0  # [rad/s]
+            self.max_yaw_rate = 0.6 #Same as the move2d output limit #90.0 * math.pi / 180.0  # [rad/s]
             self.max_accel = 0.2  # [m/ss]
             self.max_delta_yaw_rate = 90.0 * math.pi / 180.0  # [rad/ss]
             self.v_resolution = 0.02  # [m/s]
