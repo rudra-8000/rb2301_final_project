@@ -532,6 +532,8 @@ class ObstacleCourseNode(Node):
         if not self.single_point_goal and not self._sub_goal:
             self.move_2D()
             return
+        
+        self._state = self.update_state()   #Update the state
 
         if not self.single_point_goal and self.stage == 'start':
             self.start_stage()
@@ -577,7 +579,6 @@ class ObstacleCourseNode(Node):
                 self.get_logger().info('gate reached')
                 self.stage = 'final'
 
-        self._state = self.update_state()   #Update the state
 
         if not self.single_point_goal and self.stage == 'final':
             self._goal.goal_heading = self._sub_goal_2[-1]
