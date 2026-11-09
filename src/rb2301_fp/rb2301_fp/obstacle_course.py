@@ -428,7 +428,7 @@ class ObstacleCourseNode(Node):
 
     def update_state(self)->np.ndarray:
         """update speed and orientation using pose[], keep vel and omega"""
-        return np.array([self.pose[0], self.pose[1], np.deg2rad(self.pose[2]), self._state[3], self._state[4]])
+        return np.array([self.pose[0], self.pose[1], np.deg2rad(self.pose[2]), self.actual_velocity[0], self.actual_velocity[1] ])
 
     def update_actual_velocity(self, stamp):
         """use differentiation of position to estimate the forward speed(m/s) and angular speed(rad/s)"""
@@ -577,12 +577,13 @@ class ObstacleCourseNode(Node):
                 self.get_logger().info('gate reached')
                 self.stage = 'final'
 
+        self._state = self.update_state()   #Update the state
+
         if not self.single_point_goal and self.stage == 'final':
             self._goal.goal_heading = self._sub_goal_2[-1]
             self.final_stage()
 
 
-        self._state = self.update_state()   #Update the state
 
 #===========================DWA======================================================================
         self._trajectory = np.vstack((self._trajectory, self._state))
@@ -600,7 +601,6 @@ class ObstacleCourseNode(Node):
             timings['DWA'] = time.perf_counter() - dwa_started
         self._rviz_predicted_trajectory = predicted_trajectory
         self.move_2D(u[0],0.0,u[1])
-        self._state[3] , self._state[4] = self.actual_velocity[0], self.actual_velocity[1]    #TODO change this to real speed
         #dynamic_window_approach.animate(predicted_trajectory,self._state,self._goal,self._ob, self._segmentation)
 
 
