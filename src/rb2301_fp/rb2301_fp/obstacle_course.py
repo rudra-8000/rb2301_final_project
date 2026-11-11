@@ -150,6 +150,7 @@ class ObstacleCourseNode(Node):
 
         self._trajectory = np.array(self._state)
         self._ob = np.array([]) #obstacle array
+        self.scan_step = 1 # LiDAR downsampling: keep every Nth beam (1 = all, 2 = half, 4 = quarter)
         self._is_dwa_initialized = False
 
 
@@ -344,21 +345,17 @@ class ObstacleCourseNode(Node):
 #========Utilities=======#
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
-        if len(msg.ranges) <= 720:#was 360,choose whether want downsampling
-            self.last_scan = np.array(msg.ranges)
-        else:
-            self.last_scan = np.array(msg.ranges)[::2]
-
+        self.last_scan = np.array(msg.ranges)[::self.scan_step]
         self.update_ob(msg)
 
     def update_ob(self,msg):
         if self.pose is None:
             return
         r = self.last_scan
-        step = 2 if len(msg.ranges) > 720 else 1
         yaw = np.deg2rad(self.pose[2])
         # LiDAR mounting from nanocar_description.urdf: x=0.11423 m, yaw=3.1416 rad.
-        a = msg.angle_min + np.arange(r.size) * msg.angle_increment * step + 3.1416 + yaw
+        # Each kept beam is scan_step raw beams apart, so the angle step scales with it.
+        a = msg.angle_min + np.arange(r.size) * msg.angle_increment * self.scan_step + 3.1416 + yaw
         valid = np.isfinite(r) & (r >= msg.range_min) & (r <= msg.range_max)
         x = self.pose[0] + 0.11423 * np.cos(yaw)
         y = self.pose[1] + 0.11423 * np.sin(yaw)
