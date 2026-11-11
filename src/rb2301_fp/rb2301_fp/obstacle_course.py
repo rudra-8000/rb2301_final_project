@@ -150,7 +150,7 @@ class ObstacleCourseNode(Node):
 
         self._trajectory = np.array(self._state)
         self._ob = np.array([]) #obstacle array
-        self.scan_step = 1 # LiDAR downsampling: keep every Nth beam (1 = all, 2 = half, 4 = quarter)
+        self.scan_step = 2 # LiDAR downsampling: keep every Nth beam (1 = all, 2 = half, 4 = quarter)
         self._is_dwa_initialized = False
 
 

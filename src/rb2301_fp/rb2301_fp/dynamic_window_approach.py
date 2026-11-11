@@ -46,7 +46,7 @@ class Config:
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.5  # [s]
 
-            self.to_goal_node_cost_gain = 0.3      # in angle
+            self.to_goal_node_cost_gain = 0.25      # in angle
             self.to_goal_node_dist_cost_gain = 2 # in distance
 
             self.to_goal_heading_cost_gain = 0.1        #in angle
