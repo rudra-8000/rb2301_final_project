@@ -124,9 +124,14 @@ class ObstacleCourseNode(Node):
 
         # Temporary single-goal mode; disable the parameter to restore course stages.
         self.single_point_goal = self.declare_parameter('single_point_goal', True).value
-        self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
-        self.point_goal_left_angle_deg = self.declare_parameter(
-            'point_goal_left_angle_deg', 155.0).value
+        if is_simulation:
+            self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
+            self.point_goal_left_angle_deg = self.declare_parameter(
+                'point_goal_left_angle_deg', -35.0).value
+        else:
+            self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
+            self.point_goal_left_angle_deg = self.declare_parameter(
+                'point_goal_left_angle_deg', 155.0).value
 
 
         

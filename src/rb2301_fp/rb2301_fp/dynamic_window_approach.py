@@ -4,6 +4,8 @@ Mobile robot motion planning sample with Dynamic Window Approach
 
 author: Atsushi Sakai (@Atsushi_twi), Göktuğ Karakaşlı
 
+Modified by Wu Haolun, Xue Shengbo, with the help of LLM tools: Chatgpt & Claude
+
 """
 from typing import List, Tuple
 import math
@@ -271,7 +273,7 @@ def _obstacle_cost_setup(config):
     return 0.0, None, None
 
 
-def _batch_obstacle_cost(trajectories, ob, config, nearest_distance):
+def _batch_obstacle_cost(trajectories, ob, config, nearest_distance):  
     """
     calc_obstacle_cost() for every trajectory at once, with identical results.
 
