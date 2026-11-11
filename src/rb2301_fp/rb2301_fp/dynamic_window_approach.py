@@ -46,7 +46,7 @@ class Config:
             self.dt = 0.1  # [s] Time tick for motion prediction
             self.predict_time = 2.5  # [s]
 
-            self.to_goal_node_cost_gain = 0.5      # in angle
+            self.to_goal_node_cost_gain = 0.3      # in angle
             self.to_goal_node_dist_cost_gain = 2 # in distance
 
             self.to_goal_heading_cost_gain = 0.1        #in angle
@@ -74,33 +74,33 @@ class Config:
         else:   #IRL param
                         # robot parameter
             self.max_speed = 0.25         # [m/s]
-            self.min_speed = -0.1  # [m/s]
+            self.min_speed = -0.0  # [m/s]
             self.max_yaw_rate = 0.6 #Same as the move2d output limit #90.0 * math.pi / 180.0  # [rad/s]
-            self.max_accel = 0.2  # [m/ss]
+            self.max_accel = 0.25  # [m/ss]
             self.max_delta_yaw_rate = 90.0 * math.pi / 180.0  # [rad/ss]
             
             self.v_resolution = 0.02  # [m/s] NO LONGER USED
             self.yaw_rate_resolution = 1.0 * math.pi / 180.0  # [rad/s] NO LONGER USED
 
             self.v_sample_size = 4
-            self.yaw_sample_size = 20
+            self.yaw_sample_size = 15
 
             self.dt = 0.1  # [s] Time tick for motion prediction
-            self.predict_time = 2.0  # [s]
+            self.predict_time = 2.5  # [s]
 
-            self.to_goal_node_cost_gain = 0.5      # in angle
-            self.to_goal_node_dist_cost_gain = 0.5 # in distance
+            self.to_goal_node_cost_gain = 0.125      # in angle
+            self.to_goal_node_dist_cost_gain = 1.25  # in distance
 
             self.to_goal_heading_cost_gain = 0.1        #in angle
             self.to_goal_heading_dist_cost_gain = 0.5   #in distance
 
-            self.speed_cost_gain = 0.3
+            self.speed_cost_gain = 2.5
             self.speed_back_gain = 0.2
 
-            self.obstacle_cost_gain = 0.08
-            self.obstacle_turn_cost_gain = 0.5
+            self.obstacle_cost_gain = 0.3
+            self.obstacle_turn_cost_gain = 1.5
 
-            self.robot_stuck_flag_cons = 0.0001  #was 0.001 constant to prevent robot stucked
+            self.robot_stuck_flag_cons = 0.001  #was 0.001 constant to prevent robot stucked
             self.robot_type = RobotType.rectangle
 
             # if robot_type == RobotType.circle
@@ -108,8 +108,8 @@ class Config:
             self.robot_radius = 1.0  # [m] for collision check
 
             # if robot_type == RobotType.rectangle
-            self.robot_width = 0.2  # [m] for collision check
-            self.robot_length = 0.2  # [m] for collision check
+            self.robot_width = 0.20  # [m] for collision check
+            self.robot_length = 0.22  # [m] for collision check
             # obstacles [x(m) y(m), ....]
 
 
@@ -235,7 +235,7 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
                 to_goal_cost = config.to_goal_node_cost_gain * calc_to_goal_cost(trajectory, goal)
                 to_goal_cost += config.to_goal_node_dist_cost_gain * calc_to_goal_node_dist_cost(trajectory,goal)
 
-            diff = config.max_speed - max(0,trajectory[-1, 3])
+            diff = config.max_speed - max(0, abs( trajectory[-1, 3] ) )
             speed_cost = config.speed_cost_gain * diff
 
             ob_cost = config.obstacle_cost_gain * calc_obstacle_cost(trajectory, ob, config)
@@ -252,7 +252,8 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
                 no_choice = False
     
     if abs(best_u[0]) < config.robot_stuck_flag_cons \
-            and abs(x[3]) < config.robot_stuck_flag_cons:
+            and abs(x[3]) < config.robot_stuck_flag_cons \
+            and best_u[1] <config.robot_stuck_flag_cons:
     #if no_choice:
         # to ensure the robot do not get stuck in
         # best v=0 m/s (in front of an obstacle) and
@@ -261,13 +262,13 @@ def calc_control_and_trajectory(self,x, dw, config, goal, ob,goal_heading):
         best_u[1] = (-1) ** np.random.randint(1, 2) * config.max_delta_yaw_rate * 0.5
 
         #self.get_logger().warn('stucked!turning...')
-    #else:
-        #if best_cost_list:
-            #self.get_logger().info(f'best cost config:')
-            #self.get_logger().info(f'to_goal:{best_cost_list[0]}')
-            #self.get_logger().info(f'speed_cost:{best_cost_list[1]}')
-            #self.get_logger().info(f'ob_cost:{best_cost_list[2]}')
-            #self.get_logger().info(f'to_goal_dist_cost:{best_cost_list[3]}')   
+    # else:
+    #     if best_cost_list:
+    #         self.get_logger().info(f'best cost config:')
+    #         self.get_logger().info(f'to_goal:{best_cost_list[0]}')
+    #         self.get_logger().info(f'speed_cost:{best_cost_list[1]}')
+    #         self.get_logger().info(f'ob_cost:{best_cost_list[2]}')
+    #         #self.get_logger().info(f'to_goal_dist_cost:{best_cost_list[3]}')   
     return best_u, best_trajectory
 
 

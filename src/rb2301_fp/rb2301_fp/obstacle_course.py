@@ -126,7 +126,7 @@ class ObstacleCourseNode(Node):
         self.single_point_goal = self.declare_parameter('single_point_goal', True).value
         self.point_goal_distance = self.declare_parameter('point_goal_distance', 8.0).value
         self.point_goal_left_angle_deg = self.declare_parameter(
-            'point_goal_left_angle_deg', -35.0).value
+            'point_goal_left_angle_deg', 155.0).value
 
 
         
@@ -499,8 +499,8 @@ class ObstacleCourseNode(Node):
                 f'{name}={elapsed * 1000.0:.3f} ms' if elapsed is not None
                 else f'{name}=skipped'
                 for name, elapsed in timings.items())
-            # self.get_logger().info(
-            #     f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
+            self.get_logger().info(
+                f'Performance: {phases}, timer_callback={callback_ms:.3f} ms')
 
     def _run_timer_callback(self, timings): #real timer_callback
         """Controller loop; deadend timing includes segmentation and wall fitting."""
@@ -515,7 +515,7 @@ class ObstacleCourseNode(Node):
                 #self.get_logger().info(f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)  ->  maze ({self.pose[0]:+.3f}, {self.pose[1]:+.3f}, {self.pose[2]:+7.1f} deg)")
             return # Calibration mode: look, don't drive
 
-        self.get_logger().info(f"Pose: {self.pose}")
+        #self.get_logger().info(f"Pose: {self.pose}")
 
         self._initialize_point_goal()
         
